@@ -1,0 +1,99 @@
+body {
+	margin: 0px;
+	padding: 0px;
+	border: none;
+	overflow-x: auto;
+	overflow-y: scroll;
+	font-size: 16px;
+	font-family: arial, helvetica, sans-serif;
+	color: #f1f1f1;
+	background: #34353b;
+}
+
+a {
+	color: #dddddd;
+}
+a:hover {
+	color: #fffbdb;
+}
+form {
+	margin: 0;
+	padding: 0;
+}
+
+.main_container {
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	right: 0;
+	white-space: nowrap;
+	line-height: 0;
+	text-align: center;
+}
+.main_container:before {
+	content: "";
+	display: inline-block;
+	width: 0;
+	height: 100%;
+	vertical-align: middle;
+}
+.main {
+	display: inline-block;
+	vertical-align: top;
+	white-space: normal;
+	line-height: normal;
+	text-align: left;
+	margin: 2em 0;
+}
+.main.eze_main_middle {
+	vertical-align: middle;
+}
+.main_box {
+	border: 1px solid #000000;
+	background-color: #43464e;
+	padding: 1em;
+	box-sizing: border-box;
+	-moz-box-sizing: border-box;
+	width: 50em;
+}
+
+h1,h2,h3,h4,h5,h6,ol,ul {
+	margin: 0;
+}
+p {
+	margin: 0;
+}
+p+p {
+	margin-top: 0.5em;
+}
+.spacer {
+	height: 2em;
+}
+
+ol>li,ul>li {
+	margin: 0;
+}
+ol>li+li,ul>li+li {
+	margin-top: 0.5em;
+}
+ol.large_spacing>li+li,ul.large_spacing>li+li {
+	margin-top: 1em;
+}
+
+.feature_label {
+	font-weight: bold;
+}
+
+div.relative {
+	position: relative;
+}
+a.gh_page_link {
+	position: absolute;
+	right: 0;
+	top: 0;
+	text-decoration: none;
+}
+a.gh_page_link:not(:hover) {
+	color: #808184;
+}
