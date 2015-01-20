@@ -1,18 +1,23 @@
 // ==UserScript==
 // @name           eze
-// @version        1.0
+// @version        1.0.0.1
+// @author         dnsev-h
 // @namespace      dnsev-h
+// @homepage       https://dnsev-h.github.io/eze/
 // @description    Additional features for E*Hentai
 // @grant          GM_xmlhttpRequest
 // @run-at         document-start
-// @include        *://exhentai.org/*
-// @include        *://g.e-hentai.org/*
-// @include        *://forums.e-hentai.org/*
+// @include        http://exhentai.org/*
+// @include        https://exhentai.org/*
+// @include        http://g.e-hentai.org/*
+// @include        https://g.e-hentai.org/*
+// @include        http://forums.e-hentai.org/*
+// @include        https://forums.e-hentai.org/*
 // @icon           data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwAQMAAABtzGvEAAAABlBMVEUAAABmBhHV14kpAAAAAXRSTlMAQObYZgAAADFJREFUeAFjIB4w//9BLPWBgSLq//HH/w8QQYE18GOj6hgwKCBCpcDOZQaZQpgiGgAA0dhUnSJVLdEAAAAASUVORK5CYII=
 // ==/UserScript==
 // ==Meta==
-// @updateURL   https://raw.githubusercontent.com/dnsev-h/eze/master/builds/{{meta}}
-// @downloadURL https://raw.githubusercontent.com/dnsev-h/eze/master/builds/{{target}}
+// @updateURL      https://raw.githubusercontent.com/dnsev-h/eze/master/builds/{{meta}}
+// @downloadURL    https://raw.githubusercontent.com/dnsev-h/eze/master/builds/{{target}}
 // ==/Meta==
 
 
@@ -86,7 +91,7 @@
 						if (str.length > 0) str += "&";
 
 						str += escape_fcn(v);
-						if (vars[v] != null) {
+						if (vars[v] !== null) {
 							str += "=";
 							str += escape_fcn(vars[v]);
 						}
@@ -103,7 +108,7 @@
 
 				for (i = 0; i < str_split.length; ++i) {
 					// Get the match
-					if (str_split[i].length == 0) continue;
+					if (str_split[i].length === 0) continue;
 					match = re_decode_var.exec(str_split[i]);
 
 					// Set the var
@@ -333,7 +338,7 @@
 			// https://php.net/manual/en/function.date.php
 			if (typeof(date) == "number") date = new Date(date);
 
-			return format.replace(re_formatter, function (match, esc, fmt) {
+			return format.replace(re_formatter, function (full, esc, fmt) {
 				if (esc.length > 0) {
 					if ((esc.length % 2) == 1) {
 						// Escaped
@@ -773,12 +778,11 @@
 				return bw.buffer;
 			},
 			to_blob: function () {
-				var total_size = this.calculate_size(),
-					file_count = this.files.length,
+				var file_count = this.files.length,
 					data_array = [],
 					bw = new BufferWriter(),
 					pos = 0,
-					pos_cd, pos_footer, i, f;
+					pos_cd, i, f;
 
 				// Write file data
 				for (i = 0; i < file_count; ++i) {
@@ -848,7 +852,11 @@
 		// Storage type
 		var using_gmstorage = false,
 			chrome_storage = null,
-			object_byte_size, create_generic_save, save;
+			mode = "userscript",
+			modes = [ "userscript" , "local" , "session" , "temp" ],
+			temp_storage = {},
+			set_mode_functions, object_byte_size, create_generic_save, save;
+
 
 
 		// Session/site saving
@@ -933,6 +941,22 @@
 			};
 		};
 
+		// Copy functions
+		set_mode_functions = function (new_mode) {
+			// Copy
+			var fns = save[new_mode];
+
+			save.get = fns.get;
+			save.set = fns.set;
+			save.del = fns.del;
+			save.keys = fns.keys;
+			save.size = fns.size;
+			save.clear = fns.clear;
+
+			// Update
+			mode = new_mode;
+		};
+
 
 
 		// Local storage save
@@ -943,9 +967,66 @@
 			keys: null,
 			size: null,
 			clear: null,
+
 			local: create_generic_save(window.localStorage, object_byte_size),
 			session: create_generic_save(window.sessionStorage, object_byte_size),
-			mode: "",
+			userscript: null,
+			temp: {
+				get: function (key, callback) {
+					// Get value
+					var val = temp_storage[key];
+					try {
+						val = JSON.parse(val);
+					}
+					catch (e) {}
+					callback.call(null, val, true);
+				},
+				set: function (key, value, callback) {
+					// Set value
+					temp_storage[key] = JSON.stringify(value);
+					if (callback) callback.call(null, true);
+				},
+				del: function (key, callback) {
+					// Remove
+					delete temp_storage[key];
+					if (callback) callback.call(null, true);
+				},
+				keys: function (callback) {
+					// List keys
+					var keys = [],
+						k;
+
+					for (k in temp_storage) {
+						keys.push(k);
+					}
+
+					callback.call(null, keys, true);
+				},
+				size: function (callback) {
+					// Get size
+					var size = object_byte_size(temp_storage);
+					callback.call(null, size, true);
+				},
+				clear: function (callback) {
+					// Clear
+					temp_storage = {};
+					if (callback) callback.call(null, true);
+				},
+			},
+
+			set_mode: function (new_mode) {
+				var i = modes.indexOf(new_mode);
+				if (i < 0) i = 0;
+
+				while (save[modes[i]] === null) ++i;
+
+				set_mode_functions(modes[i]);
+
+				return mode;
+			},
+			get_mode: function () {
+				return mode;
+			},
 		};
 		create_generic_save = null;
 
@@ -970,131 +1051,121 @@
 		// Userscript storage method
 		if (chrome_storage !== null) {
 			// Chrome storage
-			save.get = function (key, callback) {
-				chrome_storage.get(key, function (value) {
-					// Final callback
-					callback.call(null, value[key], true);
-				});
-			};
-			save.set = function (key, value, callback) {
-				var obj = {};
-				obj[key] = value;
+			save.userscript = {
+				get: function (key, callback) {
+					chrome_storage.get(key, function (value) {
+						// Final callback
+						callback.call(null, value[key], true);
+					});
+				},
+				set: function (key, value, callback) {
+					var obj = {};
+					obj[key] = value;
 
-				chrome_storage.set(obj, callback ? function () {
-					// Final callback
-					callback.call(null, true);
-				} : undefined);
-			};
-			save.del = function (key, callback) {
-				chrome_storage.remove(key, callback ? function () {
-					// Final callback
-					callback.call(null, true);
-				} : undefined);
-			};
-			save.keys = function (callback) {
-				chrome_storage.get(null, function (obj) {
-					// Get keys
-					var keys = [],
-						key;
+					chrome_storage.set(obj, callback ? function () {
+						// Final callback
+						callback.call(null, true);
+					} : undefined);
+				},
+				del: function (key, callback) {
+					chrome_storage.remove(key, callback ? function () {
+						// Final callback
+						callback.call(null, true);
+					} : undefined);
+				},
+				keys: function (callback) {
+					chrome_storage.get(null, function (obj) {
+						// Get keys
+						var keys = [],
+							key;
 
-					for (key in obj) {
-						keys.push(key);
-					}
+						for (key in obj) {
+							keys.push(key);
+						}
 
-					// Final callback
-					callback.call(null, keys, true);
-				});
+						// Final callback
+						callback.call(null, keys, true);
+					});
+				},
+				size: function (callback) {
+					chrome_storage.getBytesInUse(null, function (bytes_used) {
+						// Final callback
+						callback.call(null, bytes_used, true);
+					});
+				},
+				clear: function (callback) {
+					chrome_storage.clear(callback ? function () {
+						// Final callback
+						callback.call(null, true);
+					} : undefined);
+				},
 			};
-			save.size = function (callback) {
-				chrome_storage.getBytesInUse(null, function (bytes_used) {
-					// Final callback
-					callback.call(null, bytes_used, true);
-				});
-			};
-			save.clear = function (callback) {
-				chrome_storage.clear(callback ? function () {
-					// Final callback
-					callback.call(null, true);
-				} : undefined);
-			};
-
-			save.mode = "chrome";
 		}
 		else if (using_gmstorage) {
 			// GM storage
-			save.get = function (key, callback) {
-				// Get value
-				var val = GM_getValue(key, undefined);
-				try {
-					val = JSON.parse(val);
-				}
-				catch (e) {}
-				callback.call(null, val, true);
-			};
-			save.set = function (key, value, callback) {
-				// Set value
-				var okay = true;
-				try {
-					GM_setValue(key, JSON.stringify(value));
-				}
-				catch (e) {
-					okay = false;
-				}
-				if (callback) callback.call(null, okay);
-			};
-			save.del = function (key, callback) {
-				// Remove
-				GM_deleteValue(key);
-				if (callback) callback.call(null, true);
-			};
-			save.keys = function (callback) {
-				// List keys
-				var keys = GM_listValues();
-				callback.call(null, keys, true);
-			};
-			save.size = function (callback) {
-				var keys = GM_listValues(),
-					size = 0,
-					i;
+			save.userscript = {
+				get: function (key, callback) {
+					// Get value
+					var val = GM_getValue(key, undefined);
+					try {
+						val = JSON.parse(val);
+					}
+					catch (e) {}
+					callback.call(null, val, true);
+				},
+				set: function (key, value, callback) {
+					// Set value
+					var okay = true;
+					try {
+						GM_setValue(key, JSON.stringify(value));
+					}
+					catch (e) {
+						okay = false;
+					}
+					if (callback) callback.call(null, okay);
+				},
+				del: function (key, callback) {
+					// Remove
+					GM_deleteValue(key);
+					if (callback) callback.call(null, true);
+				},
+				keys: function (callback) {
+					// List keys
+					var keys = GM_listValues();
+					callback.call(null, keys, true);
+				},
+				size: function (callback) {
+					var keys = GM_listValues(),
+						size = 0,
+						i;
 
-				// Create representation
-				for (i = 0; i < keys.length; ++i) {
-					size += object_byte_size(keys[i]) + ((GM_getValue(keys[i], null) || "").length || 0);
-				}
+					// Create representation
+					for (i = 0; i < keys.length; ++i) {
+						size += object_byte_size(keys[i]) + ((GM_getValue(keys[i], null) || "").length || 0);
+					}
 
-				// Return
-				callback.call(null, size, true);
+					// Return
+					callback.call(null, size, true);
+				},
+				clear: function (callback) {
+					var keys = GM_listValues(),
+						i;
+
+					// Create representation
+					for (i = 0; i < keys.length; ++i) {
+						GM_deleteValue(keys[i]);
+					}
+
+					// Return
+					callback.call(null, true);
+				},
 			};
-			save.clear = function (callback) {
-				var keys = GM_listValues(),
-					i;
-
-				// Create representation
-				for (i = 0; i < keys.length; ++i) {
-					GM_deleteValue(keys[i]);
-				}
-
-				// Return
-				callback.call(null, true);
-			};
-
-			save.mode = "chrome";
-		}
-		else {
-			// Local storage
-			save.get = save.local.get;
-			save.set = save.local.set;
-			save.del = save.local.del;
-			save.keys = save.local.keys;
-			save.size = save.local.size;
-			save.clear = save.local.clear;
-
-			save.mode = "local";
 		}
 
 
 
 		// Expose functions
+		save.set_mode(mode);
 		return save;
 
 	})();
@@ -1232,6 +1303,9 @@
 			return headers;
 		};
 
+		var complete_extra = function (extra, response_headers) {
+			extra.response_headers = header_string_parse(response_headers);
+		};
 
 
 		// Main function
@@ -1245,23 +1319,28 @@
 					An object of headers
 		*/
 		var Ajax = function (method, url, data, settings, on_load, on_error, on_complete, on_progress) {
+			var extra, xhr_data, xhr, parser, okay, v;
+			extra = {
+				url: url,
+				response_headers: null,
+			};
+
 			// Values
 			this.abort = null;
 
 			// Run
 			if (settings && settings.use_gm && can_use_gm) {
 				// Setup xhr args
-				var xhr_data = {
+				xhr_data = {
 					method: method,
 					url: url,
-				},
-				parser = null,
-				gm_xhr, v;
+				};
+				parser = null;
 
 				// Setup
 				if (settings) {
 					if ("response_type" in settings) {
-						v = settings["response_type"];
+						v = settings.response_type;
 
 						if (v in response_parsers) {
 							parser = response_parsers[v];
@@ -1271,33 +1350,46 @@
 						}
 					}
 					if ("headers" in settings) {
-						xhr_data.headers = settings["headers"];
+						xhr_data.headers = settings.headers;
 					}
 				}
 
 				// Events
 				if (on_load || on_complete) {
 					xhr_data.onload = function (response) {
-						var data = response.responseText;
+						// Complete extra
+						complete_extra(extra, response.responseHeaders);
 
-						if (parser !== null) data = parser.call(null, data);
+						// Process response
+						var res_data = response.responseText;
+						if (parser !== null) res_data = parser.call(null, res_data);
 
-						if (on_load) on_load.call(null, data, response.status, response.statusText, url);
-						if (on_complete) on_complete.call(null, true, url);
+						// Events
+						if (on_load) on_load.call(null, res_data, response.status, response.statusText, extra);
+						if (on_complete) on_complete.call(null, true, extra);
 					};
 				}
 				if (on_error || on_complete) {
-					xhr_data.onerror = function (response) {
-						if (on_error) on_error.call(null, "error", url);
-						if (on_complete) on_complete.call(null, false, url);
+					xhr_data.onerror = function () {
+						// Complete extra
+						complete_extra(extra, response.responseHeaders);
+
+						// Events
+						if (on_error) on_error.call(null, "error", extra);
+						if (on_complete) on_complete.call(null, false, extra);
 					};
-					xhr_data.onabort = function (response) {
-						if (on_error) on_error.call(null, "abort", url);
-						if (on_complete) on_complete.call(null, false, url);
+					xhr_data.onabort = function () {
+						// Complete extra
+						complete_extra(extra, response.responseHeaders);
+
+						// Events
+						if (on_error) on_error.call(null, "abort", extra);
+						if (on_complete) on_complete.call(null, false, extra);
 					};
 				}
 				if (on_progress) {
 					xhr_data.onprogress = function (event) {
+						// Compute progress
 						var perc, total;
 						if (event.lengthComputable) {
 							perc = event.loaded / event.total;
@@ -1307,37 +1399,37 @@
 							perc = 0.0;
 							total = null;
 						}
-						on_progress.call(null, perc, event.loaded, total, url);
+
+						// Event
+						on_progress.call(null, perc, event.loaded, total, extra);
 					};
 				}
 
 
-				// Data
-				if (data != null) xhr_data.data = data;
-
 				// Send
-				gm_xhr = GM_xmlhttpRequest(xhr_data);
+				if (data !== null) xhr_data.data = data;
+				xhr = GM_xmlhttpRequest(xhr_data);
 
 				// Done
 				this.abort = function () {
-					if (gm_xhr !== null) {
-						gm_xhr.abort();
-						gm_xhr = null;
+					if (xhr !== null) {
+						xhr.abort();
+						xhr = null;
 					}
 				};
 			}
 			else {
 				// Create XHR
-				var xhr = new XMLHttpRequest(),
-					okay = false,
-					v;
+				xhr = new XMLHttpRequest();
+				okay = false;
 
+				// Open
 				xhr.open(method, url, true);
 
 				// Setup
 				if (settings) {
 					if ("response_type" in settings) {
-						v = settings["response_type"];
+						v = settings.response_type;
 
 						xhr.responseType = v;
 						if (v == "arraybuffer") {
@@ -1345,34 +1437,48 @@
 						}
 					}
 					if ("headers" in settings) {
-						for (v in settings["headers"]) {
-							xhr.setRequestHeader(v, settings["headers"][v]);
+						for (v in settings.headers) {
+							xhr.setRequestHeader(v, settings.headers[v]);
 						}
 					}
 				}
 
 				// Events
 				if (on_load) {
-					xhr.addEventListener("load", function (event) {
+					xhr.addEventListener("load", function () {
+						// Complete extra
+						complete_extra(extra, xhr.getAllResponseHeaders());
+
+						// Event
 						okay = true;
-						on_load.call(null, xhr.response, xhr.status, xhr.statusText, url);
+						on_load.call(null, xhr.response, xhr.status, xhr.statusText, extra);
 					}, false);
 				}
 				if (on_error) {
-					xhr.addEventListener("error", function (event) {
-						on_error.call(null, "error", url);
+					xhr.addEventListener("error", function () {
+						// Complete extra
+						complete_extra(extra, xhr.getAllResponseHeaders());
+
+						// Event
+						on_error.call(null, "error", extra);
 					}, false);
-					xhr.addEventListener("abort", function (event) {
-						on_error.call(null, "abort", url);
+					xhr.addEventListener("abort", function () {
+						// Complete extra
+						complete_extra(extra, xhr.getAllResponseHeaders());
+
+						// Event
+						on_error.call(null, "abort", extra);
 					}, false);
 				}
 				if (on_complete) {
-					xhr.addEventListener("loadend", function (event) {
-						on_complete.call(null, okay, url);
+					xhr.addEventListener("loadend", function () {
+						// Event
+						on_complete.call(null, okay, extra);
 					}, false);
 				}
 				if (on_progress) {
 					xhr.addEventListener("progress", function (event) {
+						// Compute progress
 						var perc, total;
 						if (event.lengthComputable) {
 							perc = event.loaded / event.total;
@@ -1382,12 +1488,14 @@
 							perc = 0.0;
 							total = null;
 						}
-						on_progress.call(null, perc, event.loaded, total, url);
+
+						// Event
+						on_progress.call(null, perc, event.loaded, total, extra);
 					}, false);
 				}
 
 				// Send
-				if (data == null) {
+				if (data === null) {
 					xhr.send();
 				}
 				else {
@@ -1488,7 +1596,7 @@
 					if (key in vars) {
 						args[0] = vars[key];
 
-						if (label != null) {
+						if (label) {
 							if (label in formatters) {
 								return formatters[label].apply(null, args);
 							}
@@ -1580,7 +1688,7 @@
 			var arg_count = arguments.length,
 				node = document.createElement(tag),
 				i = 1,
-				a, j, k, t, b0, b1;
+				a, j, k, t;
 
 			// Done
 			if (i >= arg_count) return node;
@@ -1608,7 +1716,7 @@
 							}
 						}
 					}
-					else if (a != null) {
+					else if (a !== null) {
 						// Attributes
 						for (k in a) {
 							node.setAttribute(k, a[k]);
@@ -1752,60 +1860,6 @@
 	// API
 	var API = (function () {
 
-		var request_generic = function (method, url, data, setup_xhr, on_load, on_error, on_complete, on_progress) {
-			// Create XHR
-			var xhr = new XMLHttpRequest(),
-				okay = false;
-
-			xhr.open(method, url, true);
-
-			// Setup
-			if (setup_xhr) {
-				setup_xhr.call(null, xhr);
-			}
-
-			// Events
-			if (on_load) {
-				xhr.addEventListener("load", function (event) {
-					okay = true;
-					on_load.call(null, xhr.response, xhr.status, xhr.statusText, url);
-				}, false);
-			}
-			if (on_error) {
-				xhr.addEventListener("error", function (event) {
-					on_error.call(null, event, url);
-				}, false);
-				xhr.addEventListener("abort", function (event) {
-					on_error.call(null, event, url);
-				}, false);
-			}
-			if (on_complete) {
-				xhr.addEventListener("loadend", function (event) {
-					on_complete.call(null, okay, url);
-				}, false);
-			}
-			if (on_progress) {
-				xhr.addEventListener("loadend", function (event) {
-					on_progress.call(null, event.lengthComputable ? event.loaded / event.total : 0.0, url);
-				}, false);
-			}
-
-			// Send
-			if (data == null) {
-				xhr.send();
-			}
-			else {
-				xhr.send(data);
-			}
-
-			// Done
-			return {
-				abort: function () {
-					xhr.abort();
-				},
-			};
-		};
-
 		var size_label_to_bytes = function (number, label) {
 			var i = [ "b" , "kb" , "mb" , "gb" ].indexOf(label.toLowerCase());
 			if (i < 0) i = 0;
@@ -1933,7 +1987,7 @@
 				return new Ajax(
 					"POST",
 					"/api.php",
-					(data == null ? null : JSON.stringify(data)),
+					(data === null ? null : JSON.stringify(data)),
 					{
 						headers: {
 							"Content-Type": "application/json",
@@ -2096,7 +2150,7 @@
 					i, n;
 
 				// Not found
-				if (pages.length == 0) return null;
+				if (pages.length === 0) return null;
 
 				// Create info
 				var page_info = {
@@ -2123,8 +2177,8 @@
 
 			get_gallery_info_from_html: function (html) {
 				// Vars
-				var i, j, n, m, n2, par, pattern, prev, info;
-				var namespace, tds, tag;
+				var i, j, n, m, par, pattern, prev, info,
+					namespace, tds, tag;
 
 				// Data
 				var data = create_blank_gallery_data();
@@ -2376,28 +2430,28 @@
 					div = document.createElement("div");
 
 				// Basic data
-				data.gallery.gid = json["gid"];
-				data.gallery.token = json["token"];
+				data.gallery.gid = json.gid;
+				data.gallery.token = json.token;
 
-				div.innerHTML = json["title"]; // Replace special &#...; chars
+				div.innerHTML = json.title; // Replace special &#...; chars
 				data.title = div.textContent;
-				div.innerHTML = json["title_jpn"];
+				div.innerHTML = json.title_jpn;
 				data.title_original = div.textContent;
 
-				data.image_count = parseInt(json["filecount"], 10);
-				data.total_file_size_approx = json["filesize"];
-				data.visible = !json["expunged"];
-				data.rating.average = json["rating"];
-				data.date_uploaded = (new Date(json["posted"] * 1000)).getTime();
+				data.image_count = parseInt(json.filecount, 10);
+				data.total_file_size_approx = json.filesize;
+				data.visible = !json.expunged;
+				data.rating.average = json.rating;
+				data.date_uploaded = (new Date(json.posted * 1000)).getTime();
 
-				data.uploader = json["uploader"];
-				data.category = json["category"].toLowerCase();
+				data.uploader = json.uploader;
+				data.category = json.category.toLowerCase();
 
-				data.thumbnail = json["thumb"];
+				data.thumbnail = json.thumb;
 
 				// Tags
 				tag_list = [];
-				Array.prototype.push.apply(tag_list, json["tags"]);
+				Array.prototype.push.apply(tag_list, json.tags);
 				data.tags["undefined"] = tag_list;
 
 				// Done
@@ -2414,7 +2468,7 @@
 				if ((n = html.querySelector("#gdt")) !== null) {
 					// Image nodes
 					nodes = n.querySelectorAll(".gdtm");
-					if ((large = (nodes.length == 0))) {
+					if ((large = (nodes.length === 0))) {
 						nodes = n.querySelectorAll(".gdtl");
 					}
 
@@ -2475,7 +2529,7 @@
 			},
 
 			get_image_info_from_html: function (html) {
-				var page_vars, nodes, info, src, re, i, n, m;
+				var page_vars, nodes, info, re, i, n, m;
 
 				// Setup data
 				var data = create_blank_image_data();
@@ -2493,11 +2547,11 @@
 						return "";
 					});
 
-					if ("startkey" in page_vars) data.navigation.key_current = page_vars["startkey"];
-					if ("showkey" in page_vars) data.navigation.api_key = page_vars["showkey"];
-					if ("si" in page_vars) data.navigation.direct_id = page_vars["si"];
+					if ("startkey" in page_vars) data.navigation.key_current = page_vars.startkey;
+					if ("showkey" in page_vars) data.navigation.api_key = page_vars.showkey;
+					if ("si" in page_vars) data.navigation.direct_id = page_vars.si || null;
 				}
-				if (data.navigation.direct_id == null) {
+				if (data.navigation.direct_id === null) {
 					if ((n = html.querySelectorAll("a[onclick]")).length > 0) {
 						re = /^\s*return\s+nl\s*\(\s*(\d+)\s*\)\s*$/;
 						for (i = 0; i < n.length; ++i) {
@@ -2618,15 +2672,15 @@
 				var data = create_blank_image_data();
 
 				// Basic info
-				data.page = (json["p"] || 1) - 1;
-				data.navigation.key_current = json["k"] || "";
-				data.navigation.direct_id = json["si"] || 0;
+				data.page = (json.p || 1) - 1;
+				data.navigation.key_current = json.k || "";
+				data.navigation.direct_id = json.si || 0;
 
-				data.image.width = parseInt(json["x"], 10) || 0;
-				data.image.height = parseInt(json["y"], 10) || 0;
+				data.image.width = parseInt(json.x, 10) || 0;
+				data.image.height = parseInt(json.y, 10) || 0;
 
 				// Get info
-				div.innerHTML = json["i"] || "";
+				div.innerHTML = json.i || "";
 				re = /(.*?)\s*::\s*(\d+)\s*x\s*(\d+)\s*::\s*([\d\.]+)\s*(\w+)$/i;
 				if (
 					(n = div.querySelector("div")) !== null &&
@@ -2640,7 +2694,7 @@
 				}
 
 				// Get image
-				div.innerHTML = json["i3"] || "";
+				div.innerHTML = json.i3 || "";
 				if ((n = div.querySelector("#img")) !== null) {
 					data.image.url = n.getAttribute("src") || "";
 				}
@@ -2649,7 +2703,7 @@
 				}
 
 				// Get pages
-				div.innerHTML = json["n"];
+				div.innerHTML = json.n;
 				if ((n = div.querySelectorAll(".sn>div>span")).length >= 2) {
 					data.page_count = parseInt(n[1].textContent.trim(), 10) || 0;
 				}
@@ -2674,7 +2728,7 @@
 				}
 
 				// Gallery
-				div.innerHTML = json["i5"];
+				div.innerHTML = json.i5;
 				if (
 					(n = div.querySelector(".sb>a")) !== null &&
 					(info = API.get_gallery_url_info(n.getAttribute("href") || "")) !== null
@@ -2687,8 +2741,8 @@
 				}
 
 				// Original image
-				if (json["i7"]) {
-					div.innerHTML = json["i7"];
+				if (json.i7) {
+					div.innerHTML = json.i7;
 					re = /(\d+)\s*x\s*(\d+)\s+([\d\.]+)\s*(\w+)/i;
 					if (
 						(n = div.querySelector("a")) !== null &&
@@ -2708,7 +2762,7 @@
 			},
 
 			get_image_info: function (gid, key, page, api_key, direct_id, callback, on_load, on_error, on_complete, on_progress) {
-				if (api_key && direct_id == null) {
+				if (api_key && direct_id === null) {
 					// Request using JSON
 					var req_data = {
 						method: "showpage",
@@ -2749,7 +2803,7 @@
 				}
 				else {
 					// Request the page
-					return API.request_document("/s/" + key + "/" + gid + "-" + (page + 1) + (direct_id != null ? "?nl=" + direct_id : ""),
+					return API.request_document("/s/" + key + "/" + gid + "-" + (page + 1) + (direct_id !== null ? "?nl=" + direct_id : ""),
 						// On load
 						function (response, status, status_text) {
 							if (on_load) on_load.apply(this, arguments);
@@ -2796,7 +2850,7 @@
 							if (on_load) on_load.apply(this, arguments);
 
 							if (status == 200) {
-								var data = (response && response["gmetadata"] && response["gmetadata"][0]) ? API.get_gallery_info_from_json(response["gmetadata"][0]) : null;
+								var data = (response && response.gmetadata && response.gmetadata[0]) ? API.get_gallery_info_from_json(response.gmetadata[0]) : null;
 
 								if (data !== null) {
 									callback.call(null, API.OK, data, null);
@@ -2858,7 +2912,7 @@
 				if (par) {
 					par.innerHTML = "";
 
-					if (fav_id != null && fav_id >= 0 && fav_id < 10) {
+					if (fav_id >= 0 && fav_id < 10) {
 						img = document.createElement("div");
 						img.className = "i";
 						if (fav_title) img.setAttribute("title", fav_title);
@@ -2971,7 +3025,7 @@
 
 			this.close_timer = null;
 
-			this.flags = (flags == null) ? (Menu.BELOW | Menu.LEFT | Menu.CENTER | Menu.VERTICAL) : flags;
+			this.flags = (flags === undefined) ? (Menu.BELOW | Menu.LEFT | Menu.CENTER | Menu.VERTICAL) : flags;
 
 			// Node
 			this.container = $("div", "eze_menu");
@@ -3011,7 +3065,7 @@
 		};
 		var on_option_click = function (menu, id, event) {
 			// Skip
-			if (event.which != 1 && event.which != null) return;
+			if (event.which != 1) return;
 
 			// Trigger event
 			trigger.call(menu, "select", {
@@ -3075,14 +3129,14 @@
 				bounds = false,
 				self_rect = Geometry.get_object_rect(this.container),
 				view_rect = Geometry.get_window_rect(),
-				i = ((this.flags & Menu.VERTICAL) != 0 || (this.flags & Menu.HORIZONTAL) == 0) ? 1 : 0,
+				i = ((this.flags & Menu.VERTICAL) !== 0 || (this.flags & Menu.HORIZONTAL) === 0) ? 1 : 0,
 				flex = [
-					(this.flags & Menu.HORIZONTAL_LOCK) == 0,
-					(this.flags & Menu.VERTICAL_LOCK) == 0,
+					(this.flags & Menu.HORIZONTAL_LOCK) === 0,
+					(this.flags & Menu.VERTICAL_LOCK) === 0,
 				],
 				align = [
-					(this.flags & Menu.LEFT) == 0, // Is to the right
-					(this.flags & Menu.ABOVE) == 0, // Is below
+					(this.flags & Menu.LEFT) === 0, // Is to the right
+					(this.flags & Menu.ABOVE) === 0, // Is below
 				],
 				low, high, size, aflags, p;
 
@@ -3128,13 +3182,13 @@
 			aflags = k_aflags[i];
 
 			// Default position
-			if ((this.flags & aflags[0]) != 0) {
+			if ((this.flags & aflags[0]) !== 0) {
 				p = par_rect[low] + (par_rect[size] - self_rect[size]) / 2.0;
 				// Left/right bounding
-				if ((this.flags & aflags[1]) != 0) {
+				if ((this.flags & aflags[1]) !== 0) {
 					p = Math.max(p, par_rect[low]);
 				}
-				else if ((this.flags & aflags[2]) != 0) {
+				else if ((this.flags & aflags[2]) !== 0) {
 					p = Math.min(p, par_rect[high] - self_rect[size]);
 				}
 			}
@@ -3201,7 +3255,7 @@
 				var tag_type = "a",
 					tag_class = "eze_menu_option",
 					is_label = false,
-					opt, on_click, node_settings;
+					opt, on_click;
 
 				if (settings) {
 					if (settings.label) {
@@ -3235,13 +3289,13 @@
 			},
 			show: function (parent, flags) {
 				// Setup flags
-				if (flags != null) this.flags = flags;
+				if (flags !== undefined) this.flags = flags;
 
 				// Show
 				this.container.classList.add("eze_menu_visible");
 
 				// Set font size
-				if ((this.flags & Menu.NO_FONT_SCALING) == 0) {
+				if ((this.flags & Menu.NO_FONT_SCALING) === 0) {
 					set_font_size.call(this, parent);
 				}
 
@@ -3473,21 +3527,6 @@
 
 
 
-		var timing = function (start) {
-			var t;
-
-			try {
-				t = performance.now();
-			}
-			catch (e) {
-				t = new Date().getTime();
-			}
-
-			if (start != null) t -= start;
-
-			return t;
-		};
-
 		var trigger = function (event, data) {
 			for (var i = 0, list = this.events[event]; i < list.length; ++i) {
 				list[i].call(null, data, event);
@@ -3558,7 +3597,7 @@
 					this.image_total_bytes[GalleryDownloader.IMAGE_NOT_ACQUIRED] = this.gal_info.total_file_size_approx;
 				}
 				// Page count
-				if (this.page_count == 0) {
+				if (this.page_count === 0) {
 					var page_info = API.get_pages_info_from_html(response);
 					if (page_info !== null) {
 						// Set count
@@ -3625,10 +3664,10 @@
 					gid = i.gallery.gid;
 					key = i.navigation.key_next;
 					page = i.page + 1;
-					api_key = this.images[0].info.navigation.api_key;
+					api_key = this.images[0].info.navigation.api_key || null;
 				}
 			}
-			if (api_key == null) {
+			if (api_key === null) {
 				// Get URL info
 				i = API.get_gallery_image_url_info(this.images[req.index].info_from_gallery.url);
 				if (i === null) return; // Invalid
@@ -3696,13 +3735,14 @@
 				use_full = this.use_full_images,
 				try_index = req.retry_index,
 				using_data = null,
-				using_method = GalleryDownloader.IMAGE_NOT_ACQUIRED;
+				using_method = GalleryDownloader.IMAGE_NOT_ACQUIRED,
+				url_info;
 
 			// Can't start yet
 			if (image_data.info === null) return;
 
 			// Acquire method
-			if (try_index == 0) {
+			if (try_index === 0) {
 				// Get the primary image
 				if (use_full) {
 					if (image_data.info.image_original === null) {
@@ -3746,8 +3786,8 @@
 			}
 			else {
 				// Get fallback page
-				var image_data = this.images[req.index].info,
-					url_info = API.get_gallery_image_url_info(this.images[req.index].info_from_gallery.url);
+				url_info = API.get_gallery_image_url_info(image_data.info_from_gallery.url);
+				image_data = image_data.info;
 
 				req.request = API.get_image_info(
 					image_data.gallery.gid, // gid
@@ -4278,7 +4318,7 @@
 					}
 					if ("zip_info_json_name" in value) {
 						self.zip_info_json_name = filename_normalize(value.zip_info_json_name || "");
-						if (self.zip_info_json_name.length == 0) self.zip_info_json_name = "info.json";
+						if (self.zip_info_json_name.length === 0) self.zip_info_json_name = "info.json";
 						self.node_zip_info_json_name.value = self.zip_info_json_name;
 					}
 					if ("use_full_images" in value) {
@@ -4308,7 +4348,7 @@
 		var filename_normalize = (function () {
 
 			var filename_normalize = function (name) {
-				name = name.replace(/[\x00-\x1F]+/g, "")
+				name = name.replace(/[\x00-\x1F]+/g, "");
 				name = name.replace(re_pattern, function (m) {
 					return char_map[m];
 				});
@@ -4643,7 +4683,7 @@
 
 		var get_zip_image_filename = function (base_name, index) {
 			// Get base name
-			if (base_name == null) {
+			if (base_name === null) {
 				if (this.loader.gal_info === null) {
 					base_name = "";
 				}
@@ -4657,7 +4697,7 @@
 					base_name = "";
 				}
 
-				if (index == null) return base_name;
+				if (index === null) return base_name;
 			}
 
 			// Settings
@@ -4665,7 +4705,7 @@
 				digit_count = Math.max(3, ("" + this.loader.images.length).length),
 				ext = filename_get_ext(image_data.image_url).toLowerCase();
 
-			if (ext.length == 0) ext = filename_get_ext(image_data.info.image.filename).toLowerCase();
+			if (ext.length === 0) ext = filename_get_ext(image_data.info.image.filename).toLowerCase();
 			ext = valid_extensions[ext in valid_extensions ? ext : ""];
 
 			// New name
@@ -4714,9 +4754,8 @@
 			// Settings
 			var images = this.loader.images,
 				gal_info = this.loader.gal_info,
-				tab_mode = undefined,
 				date = new Date(gal_info.date_uploaded),
-				json_info, img, obj, i;
+				tab_mode, json_info, img, obj, i;
 
 			if (this.zip_info_json_mode == constants.JSON_READABLE_2SPACE) {
 				tab_mode = 2;
@@ -4799,7 +4838,7 @@
 
 		var on_option_box_click = function (callback, event) {
 			// Skip
-			if (event.which != 1 && event.which != null) return;
+			if (event.which != 1) return;
 
 			var sel = this.querySelector(".eze_dl_option_box_entry_selected"),
 				val;
@@ -4868,7 +4907,7 @@
 			// Save
 			save_values.call(this);
 		};
-		var on_option_full_images_change = function (event) {
+		var on_option_full_images_change = function () {
 			var node = this.node_full_image_checkbox,
 				value = node.checked;
 
@@ -4881,7 +4920,7 @@
 			// Save
 			save_values.call(this);
 		};
-		var on_option_failure_timeout_change = function (event) {
+		var on_option_failure_timeout_change = function () {
 			var node = this.node_failure_timeout,
 				value, m;
 
@@ -4898,7 +4937,7 @@
 			// Save
 			save_values.call(this);
 		};
-		var on_option_failure_retry_max_change = function (event) {
+		var on_option_failure_retry_max_change = function () {
 			var node = this.node_failure_retry_max,
 				value, m;
 
@@ -4915,11 +4954,11 @@
 			// Save
 			save_values.call(this);
 		};
-		var on_option_zip_info_json_name_change = function (event) {
+		var on_option_zip_info_json_name_change = function () {
 			var node = this.node_zip_info_json_name,
 				value = filename_normalize(node.value);
 
-			if (value.length == 0) value = "info.json";
+			if (value.length === 0) value = "info.json";
 			this.zip_info_json_name = value;
 			update_zip_json.call(this);
 
@@ -4932,7 +4971,7 @@
 
 		var on_main_link_click = function (event) {
 			// Skip
-			if (event.which != 1 && event.which != null) return;
+			if (event.which != 1) return;
 
 			// Pause/resume
 			if (this.loader.is_done()) {
@@ -4953,7 +4992,7 @@
 			return false;
 		};
 
-		var on_loader_image_progress = function (event) {
+		var on_loader_image_progress = function () {
 			// Update progress
 			update_byte_progress_bar.call(this);
 		};
@@ -4976,7 +5015,7 @@
 				update_byte_progress_bar.call(this);
 			}
 		};
-		var on_loader_state_change = function (event) {
+		var on_loader_state_change = function () {
 			// Update stuff
 			update_main_link_text.call(this);
 			update_info_status_text.call(this);
@@ -4998,14 +5037,14 @@
 				update_final_filename.call(this);
 			}
 		};
-		var on_loader_gallery_page_get = function (event) {
+		var on_loader_gallery_page_get = function () {
 			// Update
 			update_progress_bars.call(this);
 
 			// Hide error
 			this.node_info_error.classList.remove("eze_dl_info_visible");
 		};
-		var on_loader_image_page_get = function (event) {
+		var on_loader_image_page_get = function () {
 			// Update
 			update_progress_bars.call(this);
 		};
@@ -5038,131 +5077,131 @@
 
 		// Setup vars
 		if (is_ex) {
-			vars["gallery_item_hl"] = CSS.color("#080808");
-			vars["bg"] = CSS.color("#43464E");
-			vars["bg_dark"] = CSS.color("#34353B");
-			vars["bg_light"] = CSS.color("#4f535b");
-			vars["border"] = CSS.color("#000000");
-			vars["border_light"] = CSS.color("#989898");
-			vars["border_radius"] = "0";
-			vars["text"] = CSS.color("#F1F1F1");
-			vars["text_light"] = CSS.color("#B8B8B8");
-			vars["text_shadow"] = CSS.color("#080808");
-			vars["dl_bar_bg1"] = CSS.color("#0088ff");
-			vars["dl_bar_bg2"] = CSS.color("#00a020");
-			vars["dl_bar_bg3"] = CSS.color("#a07000");
-			vars["dl_bar_bg4"] = CSS.color("#c00000");
+			vars.gallery_item_hl = CSS.color("#080808");
+			vars.bg = CSS.color("#43464E");
+			vars.bg_dark = CSS.color("#34353B");
+			vars.bg_light = CSS.color("#4f535b");
+			vars.border = CSS.color("#000000");
+			vars.border_light = CSS.color("#989898");
+			vars.border_radius = "0";
+			vars.text = CSS.color("#F1F1F1");
+			vars.text_light = CSS.color("#B8B8B8");
+			vars.text_shadow = CSS.color("#080808");
+			vars.dl_bar_bg1 = CSS.color("#0088ff");
+			vars.dl_bar_bg2 = CSS.color("#00a020");
+			vars.dl_bar_bg3 = CSS.color("#a07000");
+			vars.dl_bar_bg4 = CSS.color("#c00000");
 		}
 		else {
-			vars["gallery_item_hl"] = CSS.color("#f8f8f8");
-			vars["bg"] = CSS.color("#E3E0D1");
-			vars["bg_dark"] = CSS.color("#E3E0D1");
-			vars["bg_light"] = CSS.color("#EDEBDF");
-			vars["border"] = CSS.color("#5C0D12");
-			vars["border_light"] = CSS.color("#806769");
-			vars["border_radius"] = "9px";
-			vars["text"] = CSS.color("#5C0D11");
-			vars["text_light"] = CSS.color("#9F8687");
-			vars["text_shadow"] = CSS.color("#f8f8f8");
-			vars["dl_bar_bg1"] = CSS.color("#88ccff");
-			vars["dl_bar_bg2"] = CSS.color("#88ffaa");
-			vars["dl_bar_bg3"] = CSS.color("#ffc0aa");
-			vars["dl_bar_bg4"] = CSS.color("#ffaaaa");
+			vars.gallery_item_hl = CSS.color("#f8f8f8");
+			vars.bg = CSS.color("#E3E0D1");
+			vars.bg_dark = CSS.color("#E3E0D1");
+			vars.bg_light = CSS.color("#EDEBDF");
+			vars.border = CSS.color("#5C0D12");
+			vars.border_light = CSS.color("#806769");
+			vars.border_radius = "9px";
+			vars.text = CSS.color("#5C0D11");
+			vars.text_light = CSS.color("#9F8687");
+			vars.text_shadow = CSS.color("#f8f8f8");
+			vars.dl_bar_bg1 = CSS.color("#88ccff");
+			vars.dl_bar_bg2 = CSS.color("#88ffaa");
+			vars.dl_bar_bg3 = CSS.color("#ffc0aa");
+			vars.dl_bar_bg4 = CSS.color("#ffaaaa");
 		}
 
 		// Create css
-		css = CSS.format( //{
-			"\
-.id1>.id2{overflow:visible;position:relative;}\
-.id1:hover>.id2{z-index:1;}\
-.id1:hover>.id2>a{text-shadow:0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}};background:{{color:bg,0.75}};display:inline-block;padding-bottom:0.5em;}\
-\
-.eze_gallery_page_container{}\
-.eze_gallery_page{background:{{color:bg_light}};border:1px solid {{color:border}};text-align:left;width:99%;min-width:950px;max-width:1200px;margin:0 auto;clear:both;padding:5px;border-radius:{{border_radius}};position:relative;border-top-left-radius:0;}\
-.eze_gallery_page img{border:1px solid {{color:border}};margin:0;padding:0;}\
-.eze_gallery_page a{text-decoration:none;}\
-.eze_gallery_page+.eze_gallery_page{margin-top:0.5em;}\
-\
-.eze_gallery_page_indicator{display:inline-block;position:absolute;right:100%;top:0;background-color:{{color:bg_dark}};}\
-.eze_gallery_page_indicator:hover{background-color:{{color:bg_light}};}\
-.eze_gallery_page_indicator_border_top{position:absolute;bottom:100%;left:0;right:0;border-bottom:1px solid {{color:border}};}\
-.eze_gallery_page_indicator_border{position:absolute;left:0;top:0;right:0;bottom:0;border-style:solid;border-width:0px 0px 1px 1px;border-color:{{color:border}};}\
-.eze_gallery_page_indicator:not(:hover)>.ez_gallery_page_indicator_border{border-right:1px solid {{color:border}};}\
-.eze_gallery_page_indicator_text{position:relative;display:inline-block;white-space:nowrap;padding:4px;}\
-\
-.eze_favorite_link{cursor:pointer;}\
-\
-div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.5em;}\
-.eze_gallery_custom_container_inner{}\
-.eze_gallery_custom{margin:0 auto;}\
-.eze_gallery_link{text-decoration:none;font-weight:bold;cursor:pointer;font-weight:bold;}\
-.eze_gallery_link>*{vertical-align:middle;}\
-.eze_gallery_custom_table{display:table;table-layout:fixed;width:100%;}\
-.eze_gallery_custom_row{display:table-row;}\
-.eze_gallery_custom_cell{display:table-cell;text-align:left;}\
-.eze_gallery_custom_cell+.eze_gallery_custom_cell{border-left:1px solid {{color:border}};padding-left:0.5em;}\
-\
-.eze_dl_container{margin-top:0.5em;padding-top:0.5em;border-top:1px solid {{color:border}};}\
-.eze_dl_container:not(.eze_dl_container_visible){display:none;}\
-.eze_dl_title{font-size:2em;font-weight:bold;margin-bottom:0.125em;}\
-.eze_dl_title.eze_dl_title_pad_above{margin-top:0.125em;}\
-.eze_dl_link{cursor:pointer;text-decoration:none;}\
-.eze_dl_info_container{margin-left:-0.5em;}\
-.eze_dl_info{display:inline-block;margin-left:0.5em;border:1px solid {{color:border}};background-color:{{color:bg}};border-bottom:none;padding:0.25em;}\
-.eze_dl_info.eze_dl_info_error{color:#f00000;}\
-.eze_dl_info:not(.eze_dl_info_visible){display:none;}\
-.eze_dl_progress_bar{position:relative;width:100%;box-sizing:border-box;-moz-box-sizing:border-box;border:1px solid {{color:border}};background-color:{{color:bg_dark}};}\
-.eze_dl_progress_bar+.eze_dl_progress_bar{border-top:none;}\
-.eze_dl_progress_bar_bg{position:absolute;left:0;top:0;bottom:0;background-color:{{color:dl_bar_bg1}};}\
-.eze_dl_progress_bar.eze_dl_progress_bar_image_pages>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg2}};}\
-.eze_dl_progress_bar.eze_dl_progress_bar_images>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg3}};}\
-.eze_dl_progress_bar.eze_dl_progress_bar_image_size>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg4}};}\
-.eze_dl_progress_bar_text{position:relative;height:1.25em;padding:0.25em;line-height:1.25em;color:{{color:text}};text-shadow:1px 1px 0 {{color:text_shadow}};}\
-.eze_dl_setting{display:table;width:100%;padding:0.5em;box-sizing:border-box;-moz-box-sizing:border-box;}\
-.eze_dl_setting:nth-of-type(2n){background-color:{{color:bg}};}\
-.eze_dl_setting_row{display:table-row;}\
-.eze_dl_setting_cell{display:table-cell;width:100%;vertical-align:top;}\
-.eze_dl_setting_cell:first-of-type{width:0;white-space:nowrap;}\
-.eze_dl_setting_cell:not(:first-of-type){text-align:right;}\
-.eze_dl_setting_cell:not(:first-of-type)>div+div{margin-top:0.125em;}\
-.eze_dl_setting_title{font-size:1.25em;font-weight:bold;}\
-.eze_dl_setting_desc{}\
-.eze_dl_setting_input{border:1px solid {{color:border}};background-color:{{color:bg_dark}};color:{{color:text}};padding:0.125em;line-height:1.25em;width:10em;font-family:inherit;}\
-.eze_dl_setting_input.eze_dl_setting_input_small{width:4em;}\
-.eze_dl_option_box{display:inline-block;border:1px solid {{color:border}};background-color:{{color:bg_dark}};line-height:1.5em;padding:0 0.25em;height:1.5em;overflow:hidden;text-align:center;cursor:pointer;}\
-.eze_dl_option_box+.eze_dl_option_box{margin-left:0.5em;}\
-.eze_dl_option_box_entry{display:block;height:1.5em;}\
-.eze_dl_option_box_entry:not(.eze_dl_option_box_entry_selected){height:0;overflow:hidden;visibility:hidden;}\
-.eze_dl_label>*{vertical-align:middle;}\
-\
-.eze_dgallery_table{display:table;width:100%;}\
-.eze_dgallery_table.eze_dgallery_table_spaced{margin:1em 0;}\
-.eze_dgallery_row{display:table-row;}\
-.eze_dgallery_cell{display:table-cell;width:0;vertical-align:top;}\
-.eze_dgallery_cell.eze_dgallery_cell_full{width:100%;}\
-.eze_dgallery_cell.eze_dgallery_cell_nowhite{white-space:nowrap;}\
-.eze_dgallery_cell.eze_dgallery_cell_pre_border{padding-right:0.5em;}\
-.eze_dgallery_cell.eze_dgallery_cell_border{border-left:1px solid {{color:border}};padding-left:0.5em;}\
-.eze_dgallery_image{border:1px solid {{color:border}};min-width:200px;height:auto;margin-right:1em;}\
-.eze_dgallery_title{font-size:1.5em;margin:0.25em 0;}\
-.eze_dgallery_title_alt{font-size:1.25em;margin:0.25em 0;color:{{color:text_light}};}\
-.eze_dgallery_tag_container{margin:-0.5em 0 0 -1em;}\
-.eze_dgallery_tag{display:inline-block;margin:0.5em 0 0 1em;padding:0.25em;font-weight:bold;white-space:nowrap;border-radius:0.5em;border:1px solid #989898;background:{{color:bg_light}};cursor:pointer;text-decoration:none;}\
-.eze_dgallery_info_label{font-weight:bold;}\
-.eze_dgallery_extra_container{border-top:1px solid {{color:border}};padding-top:0.5em;}\
-\
-.eze_main_container{position:absolute;left:0;top:0;bottom:0;right:0;white-space:nowrap;line-height:0;text-align:center;}\
-.eze_main_container:before{content:\"\";display:inline-block;width:0;height:100%;vertical-align:middle;}\
-.eze_main{display:inline-block;width:950px;vertical-align:top;white-space:normal;line-height:normal;text-align:left;margin:2em 0;}\
-.eze_main.eze_main_middle{vertical-align:middle;}\
-.eze_main_box{border:1px solid {{color:border}};background-color:{{color:bg}};padding:0.5em 1em;box-sizing:border-box;-moz-box-sizing:border-box;}\
-\
-.eze_menu{display:block;position:absolute;left:0;top:0;background-color:{{color:bg}};text-align:left;white-space:nowrap;border:1px solid {{color:border}};z-index:100;}\
-.eze_menu_option,.eze_menu_label{display:block;padding:0.25em;text-decoration:none;}\
-.eze_menu_option{cursor:pointer;}\
-.eze_menu_label{cursor:default;}\
-.eze_menu_option:hover{background-color:{{color:bg_dark}};}\
-", //}
+		css = CSS.format(
+			[ //{
+			".id1>.id2{overflow:visible;position:relative;}",
+			".id1:hover>.id2{z-index:1;}",
+			".id1:hover>.id2>a{text-shadow:0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}};background:{{color:bg,0.75}};display:inline-block;padding-bottom:0.5em;}",
+
+			".eze_gallery_page_container{}",
+			".eze_gallery_page{background:{{color:bg_light}};border:1px solid {{color:border}};text-align:left;width:99%;min-width:950px;max-width:1200px;margin:0 auto;clear:both;padding:5px;border-radius:{{border_radius}};position:relative;border-top-left-radius:0;}",
+			".eze_gallery_page img{border:1px solid {{color:border}};margin:0;padding:0;}",
+			".eze_gallery_page a{text-decoration:none;}",
+			".eze_gallery_page+.eze_gallery_page{margin-top:0.5em;}",
+
+			".eze_gallery_page_indicator{display:inline-block;position:absolute;right:100%;top:0;background-color:{{color:bg_dark}};}",
+			".eze_gallery_page_indicator:hover{background-color:{{color:bg_light}};}",
+			".eze_gallery_page_indicator_border_top{position:absolute;bottom:100%;left:0;right:0;border-bottom:1px solid {{color:border}};}",
+			".eze_gallery_page_indicator_border{position:absolute;left:0;top:0;right:0;bottom:0;border-style:solid;border-width:0px 0px 1px 1px;border-color:{{color:border}};}",
+			".eze_gallery_page_indicator:not(:hover)>.ez_gallery_page_indicator_border{border-right:1px solid {{color:border}};}",
+			".eze_gallery_page_indicator_text{position:relative;display:inline-block;white-space:nowrap;padding:4px;}",
+
+			".eze_favorite_link{cursor:pointer;}",
+
+			"div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.5em;}",
+			".eze_gallery_custom_container_inner{}",
+			".eze_gallery_custom{margin:0 auto;}",
+			".eze_gallery_link{text-decoration:none;font-weight:bold;cursor:pointer;font-weight:bold;}",
+			".eze_gallery_link>*{vertical-align:middle;}",
+			".eze_gallery_custom_table{display:table;table-layout:fixed;width:100%;}",
+			".eze_gallery_custom_row{display:table-row;}",
+			".eze_gallery_custom_cell{display:table-cell;text-align:left;}",
+			".eze_gallery_custom_cell+.eze_gallery_custom_cell{border-left:1px solid {{color:border}};padding-left:0.5em;}",
+
+			".eze_dl_container{margin-top:0.5em;padding-top:0.5em;border-top:1px solid {{color:border}};}",
+			".eze_dl_container:not(.eze_dl_container_visible){display:none;}",
+			".eze_dl_title{font-size:2em;font-weight:bold;margin-bottom:0.125em;}",
+			".eze_dl_title.eze_dl_title_pad_above{margin-top:0.125em;}",
+			".eze_dl_link{cursor:pointer;text-decoration:none;}",
+			".eze_dl_info_container{margin-left:-0.5em;}",
+			".eze_dl_info{display:inline-block;margin-left:0.5em;border:1px solid {{color:border}};background-color:{{color:bg}};border-bottom:none;padding:0.25em;}",
+			".eze_dl_info.eze_dl_info_error{color:#f00000;}",
+			".eze_dl_info:not(.eze_dl_info_visible){display:none;}",
+			".eze_dl_progress_bar{position:relative;width:100%;box-sizing:border-box;-moz-box-sizing:border-box;border:1px solid {{color:border}};background-color:{{color:bg_dark}};}",
+			".eze_dl_progress_bar+.eze_dl_progress_bar{border-top:none;}",
+			".eze_dl_progress_bar_bg{position:absolute;left:0;top:0;bottom:0;background-color:{{color:dl_bar_bg1}};}",
+			".eze_dl_progress_bar.eze_dl_progress_bar_image_pages>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg2}};}",
+			".eze_dl_progress_bar.eze_dl_progress_bar_images>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg3}};}",
+			".eze_dl_progress_bar.eze_dl_progress_bar_image_size>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg4}};}",
+			".eze_dl_progress_bar_text{position:relative;height:1.25em;padding:0.25em;line-height:1.25em;color:{{color:text}};text-shadow:1px 1px 0 {{color:text_shadow}};}",
+			".eze_dl_setting{display:table;width:100%;padding:0.5em;box-sizing:border-box;-moz-box-sizing:border-box;}",
+			".eze_dl_setting:nth-of-type(2n){background-color:{{color:bg}};}",
+			".eze_dl_setting_row{display:table-row;}",
+			".eze_dl_setting_cell{display:table-cell;width:100%;vertical-align:top;}",
+			".eze_dl_setting_cell:first-of-type{width:0;white-space:nowrap;}",
+			".eze_dl_setting_cell:not(:first-of-type){text-align:right;}",
+			".eze_dl_setting_cell:not(:first-of-type)>div+div{margin-top:0.125em;}",
+			".eze_dl_setting_title{font-size:1.25em;font-weight:bold;}",
+			".eze_dl_setting_desc{}",
+			".eze_dl_setting_input{border:1px solid {{color:border}};background-color:{{color:bg_dark}};color:{{color:text}};padding:0.125em;line-height:1.25em;width:10em;font-family:inherit;}",
+			".eze_dl_setting_input.eze_dl_setting_input_small{width:4em;}",
+			".eze_dl_option_box{display:inline-block;border:1px solid {{color:border}};background-color:{{color:bg_dark}};line-height:1.5em;padding:0 0.25em;height:1.5em;overflow:hidden;text-align:center;cursor:pointer;}",
+			".eze_dl_option_box+.eze_dl_option_box{margin-left:0.5em;}",
+			".eze_dl_option_box_entry{display:block;height:1.5em;}",
+			".eze_dl_option_box_entry:not(.eze_dl_option_box_entry_selected){height:0;overflow:hidden;visibility:hidden;}",
+			".eze_dl_label>*{vertical-align:middle;}",
+
+			".eze_dgallery_table{display:table;width:100%;}",
+			".eze_dgallery_table.eze_dgallery_table_spaced{margin:1em 0;}",
+			".eze_dgallery_row{display:table-row;}",
+			".eze_dgallery_cell{display:table-cell;width:0;vertical-align:top;}",
+			".eze_dgallery_cell.eze_dgallery_cell_full{width:100%;}",
+			".eze_dgallery_cell.eze_dgallery_cell_nowhite{white-space:nowrap;}",
+			".eze_dgallery_cell.eze_dgallery_cell_pre_border{padding-right:0.5em;}",
+			".eze_dgallery_cell.eze_dgallery_cell_border{border-left:1px solid {{color:border}};padding-left:0.5em;}",
+			".eze_dgallery_image{border:1px solid {{color:border}};min-width:200px;height:auto;margin-right:1em;}",
+			".eze_dgallery_title{font-size:1.5em;margin:0.25em 0;}",
+			".eze_dgallery_title_alt{font-size:1.25em;margin:0.25em 0;color:{{color:text_light}};}",
+			".eze_dgallery_tag_container{margin:-0.5em 0 0 -1em;}",
+			".eze_dgallery_tag{display:inline-block;margin:0.5em 0 0 1em;padding:0.25em;font-weight:bold;white-space:nowrap;border-radius:0.5em;border:1px solid #989898;background:{{color:bg_light}};cursor:pointer;text-decoration:none;}",
+			".eze_dgallery_info_label{font-weight:bold;}",
+			".eze_dgallery_extra_container{border-top:1px solid {{color:border}};padding-top:0.5em;}",
+
+			".eze_main_container{position:absolute;left:0;top:0;bottom:0;right:0;white-space:nowrap;line-height:0;text-align:center;}",
+			".eze_main_container:before{content:\"\";display:inline-block;width:0;height:100%;vertical-align:middle;}",
+			".eze_main{display:inline-block;width:950px;vertical-align:top;white-space:normal;line-height:normal;text-align:left;margin:2em 0;}",
+			".eze_main.eze_main_middle{vertical-align:middle;}",
+			".eze_main_box{border:1px solid {{color:border}};background-color:{{color:bg}};padding:0.5em 1em;box-sizing:border-box;-moz-box-sizing:border-box;}",
+
+			".eze_menu{display:block;position:absolute;left:0;top:0;background-color:{{color:bg}};text-align:left;white-space:nowrap;border:1px solid {{color:border}};z-index:100;}",
+			".eze_menu_option,.eze_menu_label{display:block;padding:0.25em;text-decoration:none;}",
+			".eze_menu_option{cursor:pointer;}",
+			".eze_menu_label{cursor:default;}",
+			".eze_menu_option:hover{background-color:{{color:bg_dark}};}",
+			].join(""), //}
 			vars
 		);
 
@@ -5193,7 +5232,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 	var create_custom_search_links = (function () {
 
 		var create_custom_search_links = function (gal_info) {
-			var title_info = title_info = API.get_gallery_title_info(gal_info.title),
+			var title_info = API.get_gallery_title_info(gal_info.title),
 				link1, link2, n1, n2;
 
 			// Search exhentai by title
@@ -5218,7 +5257,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 
 		var on_search_link_click = function (link1, link2, event) {
 			// Skip
-			if (event.which != 1 && event.which != null) return;
+			if (event.which != 1) return;
 
 			// Create menu
 			var menu = new Menu(),
@@ -5256,7 +5295,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 
 	var setup_modifyied_titles = function () {
 		var re_pattern = /\b(exhentai|e-hentai)/i,
-			nodes, i, s;
+			nodes, i;
 
 		nodes = document.querySelectorAll("title");
 		for (i = 0; i < nodes.length; ++i) {
@@ -5266,7 +5305,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 
 	var setup_search = function () {
 		var re_pattern = /\b(exhentai|e-hentai)/i,
-			nodes, i, s;
+			nodes, i;
 
 		nodes = document.querySelectorAll("h1.ih");
 		for (i = 0; i < nodes.length; ++i) {
@@ -5320,13 +5359,12 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 			}
 		};
 		var recreate_favorite_link = function (gallery) {
-			var link = document.querySelector("#favoritelink"),
-				n;
+			var link = document.querySelector("#favoritelink");
 
 			if (link) {
 				link.setAttribute("href", "http://exhentai.org/gallerypopups.php?gid=" + gallery.gid + "&t=" + gallery.token + "&act=addfav");
-				return;
 
+				/*
 				// Create
 				n = $("a", "eze_favorite_link", link.textContent, { href: link.getAttribute("href") },
 					$.ON, [ "click", on_favorite_link_click, false, [ $.node, gallery.gid, gallery.token ] ]
@@ -5335,6 +5373,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 				// Replace
 				link.parentNode.insertBefore(n, link);
 				link.parentNode.removeChild(link);
+				*/
 			}
 		};
 
@@ -5389,9 +5428,10 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 			return n0;
 		};
 
+		/*
 		var on_favorite_link_click = function (gid, token, event) {
 			// Skip
-			if (event.which != 1 && event.which != null) return;
+			if (event.which != 1) return;
 
 			// Create menu
 			var menu = new Menu();
@@ -5406,7 +5446,8 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 			event.stopPropagation();
 			return false;
 		};
-		var on_load_all_thumbnails_change = function (thumb_loader, event) {
+		*/
+		var on_load_all_thumbnails_change = function (thumb_loader) {
 			if (this.checked) {
 				thumb_loader.resume();
 			}
@@ -5418,13 +5459,13 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 		};
 		var on_download_gallery_click = function (data, event) {
 			// Skip
-			if (event.which != 1 && event.which != null) return;
+			if (event.which != 1) return;
 
 			if (data.loader === null) {
 				// Create loader
 				data.loader = new GalleryDownloadManager(data.gallery, data.container);
-				delete data["gallery"];
-				delete data["container"];
+				delete data.gallery;
+				delete data.container;
 			}
 
 			// Stop
@@ -5521,7 +5562,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 					bind(this.on_response_error, this)
 				);
 			},
-			on_response_load: function (response, status, status_text) {
+			on_response_load: function (response, status) {
 				// Clear
 				this.request = null;
 				if (status == 200) {
@@ -5536,7 +5577,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 				// Stop
 				this.update_checkbox();
 			},
-			on_response_error: function (error) {
+			on_response_error: function () {
 				// Stop
 				this.request = null;
 				this.update_checkbox();
@@ -5696,7 +5737,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 															// Uploader
 															$("p", [
 																$("span", "eze_dgallery_info_label", "Uploader: "),
-																$("a", gal_info.uploader, { href: "/uploader/" + gal_info.uploader }),
+																$("a", null, gal_info.uploader, { href: "/uploader/" + gal_info.uploader }),
 															]),
 															// Uploaded
 															$("p", [
@@ -5756,7 +5797,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 
 		var on_favorite_edit_click = function (event) {
 			// Skip
-			if (event.which != 1 && event.which != null) return;
+			if (event.which != 1) return;
 
 			// Pop-up
 			var window_id = "_pu_ezec" + (Math.random() + "").replace(/0\./, ""),
@@ -5792,7 +5833,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 		// Primary setup function
 		var setup_panda = function () {
 			// Setup login
-			var gui = new LoginGUI();
+			new LoginGUI();
 		};
 
 
@@ -5804,8 +5845,8 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 		var setup_panda_forum_auto_run = false;
 		if (window.location.hostname == "forums.e-hentai.org" && eze_hash[0] == "eze") {
 			// Remove eze url
-			setup_panda_forum_origin = (eze_hash[1] ? eze_hash[1]["origin"] : "") || "";
-			setup_panda_forum_auto_run = (eze_hash[1] ? eze_hash[1]["auto"] == "true" : false);
+			setup_panda_forum_origin = (eze_hash[1] ? eze_hash[1].origin : "") || "";
+			setup_panda_forum_auto_run = (eze_hash[1] ? eze_hash[1].auto == "true" : false);
 			window.history.replaceState(null, "", window.location.pathname + window.location.search);
 
 			// Setup function
@@ -5857,7 +5898,7 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 			// Events
 			window.addEventListener("message", function (event) {
 				if (event.origin == self.iframe_target) {
-					self.process_message(JSON.parse(event.data), self.iframe.contentWindow);
+					self.process_message(JSON.parse(event.data));
 				}
 			}, false);
 		};
@@ -5963,35 +6004,34 @@ div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.
 				};
 
 				// Create css
-				var css = CSS.format( //{
-					"\
-body{font-size:10pt;font-family:arial,helvetica,sans-serif;color:{{color:text}};background:{{color:bg_dark}};padding:0;margin:0;}\
-a{color:{{color:text_link}};}\
-a:hover{color:{{color:text_link_hover}};}\
-form{margin:0;padding:0;}\
-\
-.eze_main_container{position:absolute;left:0;top:0;bottom:0;right:0;white-space:nowrap;line-height:0;text-align:center;}\
-.eze_main_container:before{content:\"\";display:inline-block;width:0;height:100%;vertical-align:middle;}\
-.eze_main{display:inline-block;vertical-align:top;white-space:normal;line-height:normal;text-align:left;margin:2em 0;}\
-.eze_main.eze_main_middle{vertical-align:middle;}\
-.eze_main_box{border:1px solid {{color:border}};background-color:{{color:bg}};padding:1em;box-sizing:border-box;-moz-box-sizing:border-box;}\
-\
-.eze_input_line{display:block;text-align:center;width:20em;box-sizing:border-box;-moz-box-sizing:border-box;}\
-.eze_input_line:not(.eze_input_line_label)+.eze_input_line{margin-top:0.5em;}\
-.eze_input_line_label{text-align:left;}\
-.eze_input_line_label_text{font-size:1.5em;font-weight:bold;}\
-.eze_input{display:inline-block;vertical-align:middle;border:1px solid {{color:border}};background-color:{{color:bg_light}};color:{{color:text}};padding:0.25em;box-sizing:border-box;-moz-box-sizing:border-box;width:100%;font-size:2em;}\
-.eze_input_button{display:inline-block;vertical-align:middle;border:1px solid {{color:border}};background-color:{{color:bg_light}};color:{{color:text}};padding:0.25em;box-sizing:border-box;-moz-box-sizing:border-box;width:100%;font-size:1.5em;}\
-input{outline:none;}\
-\
-.eze_input_line.eze_status_line{text-align:left;overflow:hidden;}\
-.eze_status{font-size:1.25em;line-height:1.25em;height:1.25em;display:inline-block;white-space:nowrap;}\
-.eze_status.eze_status_error{color:{{color:text_error}};}\
-.eze_status.eze_status_success{color:{{color:text_success}};}\
-\
-.eze_login_iframe{width:0;height:0;visibility:hidden;opacity:0;margin:0;padding:0;border:none;}\
-\
-", //}
+				var css = CSS.format(
+					[ //{
+					"body{font-size:10pt;font-family:arial,helvetica,sans-serif;color:{{color:text}};background:{{color:bg_dark}};padding:0;margin:0;}",
+					"a{color:{{color:text_link}};}",
+					"a:hover{color:{{color:text_link_hover}};}",
+					"form{margin:0;padding:0;}",
+
+					".eze_main_container{position:absolute;left:0;top:0;bottom:0;right:0;white-space:nowrap;line-height:0;text-align:center;}",
+					".eze_main_container:before{content:\"\";display:inline-block;width:0;height:100%;vertical-align:middle;}",
+					".eze_main{display:inline-block;vertical-align:top;white-space:normal;line-height:normal;text-align:left;margin:2em 0;}",
+					".eze_main.eze_main_middle{vertical-align:middle;}",
+					".eze_main_box{border:1px solid {{color:border}};background-color:{{color:bg}};padding:1em;box-sizing:border-box;-moz-box-sizing:border-box;}",
+
+					".eze_input_line{display:block;text-align:center;width:20em;box-sizing:border-box;-moz-box-sizing:border-box;}",
+					".eze_input_line:not(.eze_input_line_label)+.eze_input_line{margin-top:0.5em;}",
+					".eze_input_line_label{text-align:left;}",
+					".eze_input_line_label_text{font-size:1.5em;font-weight:bold;}",
+					".eze_input{display:inline-block;vertical-align:middle;border:1px solid {{color:border}};background-color:{{color:bg_light}};color:{{color:text}};padding:0.25em;box-sizing:border-box;-moz-box-sizing:border-box;width:100%;font-size:2em;}",
+					".eze_input_button{display:inline-block;vertical-align:middle;border:1px solid {{color:border}};background-color:{{color:bg_light}};color:{{color:text}};padding:0.25em;box-sizing:border-box;-moz-box-sizing:border-box;width:100%;font-size:1.5em;}",
+					"input{outline:none;}",
+
+					".eze_input_line.eze_status_line{text-align:left;overflow:hidden;}",
+					".eze_status{font-size:1.25em;line-height:1.25em;height:1.25em;display:inline-block;white-space:nowrap;}",
+					".eze_status.eze_status_error{color:{{color:text_error}};}",
+					".eze_status.eze_status_success{color:{{color:text_success}};}",
+
+					".eze_login_iframe{width:0;height:0;visibility:hidden;opacity:0;margin:0;padding:0;border:none;}",
+					].join(""), //}
 					vars
 				);
 
@@ -6003,7 +6043,6 @@ input{outline:none;}\
 					body = document.body,
 					image = doc_el.querySelector("img"),
 					loc = window.location.href,
-					self = this,
 					n0, image_new;
 
 				// Find image url
@@ -6122,7 +6161,7 @@ input{outline:none;}\
 				}
 			},
 
-			process_message: function (msg, win) {
+			process_message: function (msg) {
 				if (msg.method == "eze_request_login_ack") {
 					// Now processing
 					this.set_status("Processing login...", false);
@@ -6228,7 +6267,7 @@ input{outline:none;}\
 					this.parent_window.postMessage(JSON.stringify(data), this.origin);
 				},
 
-				process_message: function (msg, par_window) {
+				process_message: function (msg) {
 					if (msg.method == "eze_request_login") {
 						// Respond
 						this.send_message({
@@ -6261,7 +6300,7 @@ input{outline:none;}\
 						xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
 						xhr.responseType = "document";
 
-						xhr.addEventListener("load", function (event) {
+						xhr.addEventListener("load", function () {
 							if (xhr.status == 200) {
 								// Process
 								self.process_response(xhr.response);
@@ -6274,7 +6313,7 @@ input{outline:none;}\
 								});
 							}
 						}, false);
-						xhr.addEventListener("error", function (event) {
+						xhr.addEventListener("error", function () {
 							// XHR error
 							self.send_message({
 								method: "eze_login_failed",
