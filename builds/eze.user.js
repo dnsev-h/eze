@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.1
+// @version     1.0.1.1
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -1411,8 +1411,12 @@
 				// Done
 				this.abort = function () {
 					if (xhr !== null) {
-						xhr.abort();
+						var x = xhr;
 						xhr = null;
+						try {
+							x.abort();
+						}
+						catch (e) {} // Shouldn't happen, but just to be safe
 					}
 				};
 			}
@@ -4169,6 +4173,7 @@
 			return false;
 		};
 		var on_request_image_load = function (req, using_data, using_method, response, status, status_text) {
+			req.request = null;
 			req.stop();
 
 			if (status != 200) {
@@ -4215,6 +4220,7 @@
 			req.next("image_get");
 		};
 		var on_request_image_error = function (req, event) {
+			req.request = null;
 			req.stop();
 
 			if (event != "abort") {
