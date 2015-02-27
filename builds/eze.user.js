@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.1.1
+// @version     1.0.1.2
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -3777,16 +3777,21 @@
 		Requester.prototype = {
 			constructor: Requester,
 
-			stop: function () {
+			stop: function (complete) {
 				// Returns true if a request was active, false otherwise
 				if (this.timeout_timer !== null) {
 					clearTimeout(this.timeout_timer);
 					this.timeout_timer = null;
 				}
 				if (this.request !== null) {
-					this.request.abort();
-					this.request = null;
-					this.progress_reset();
+					if (complete) {
+						this.request.abort();
+						this.request = null;
+						this.progress_reset();
+					}
+					else {
+						this.request = null
+					}
 					return true;
 				}
 
@@ -3857,7 +3862,7 @@
 				this.timeout_timer = null;
 
 				// Stop request
-				this.stop();
+				this.stop(false);
 
 				// Error
 				trigger_error.call(this.downloader, "Request timed out");
@@ -3947,7 +3952,7 @@
 		};
 		var on_request_gallery_page_callback = function (req, status, data, response) {
 			// Stop timer
-			req.stop();
+			req.stop(true);
 
 			if (status == API.OK) {
 				// Set info
@@ -4057,7 +4062,7 @@
 			return (req.index >= this.images.length);
 		};
 		var on_request_image_page_callback = function (req, status, data) {
-			req.stop();
+			req.stop(true);
 
 			if (status == API.OK) {
 				// Set info
@@ -4173,8 +4178,7 @@
 			return false;
 		};
 		var on_request_image_load = function (req, using_data, using_method, response, status, status_text) {
-			req.request = null;
-			req.stop();
+			req.stop(true);
 
 			if (status != 200) {
 				// Error
@@ -4220,8 +4224,7 @@
 			req.next("image_get");
 		};
 		var on_request_image_error = function (req, event) {
-			req.request = null;
-			req.stop();
+			req.stop(true);
 
 			if (event != "abort") {
 				// Error
@@ -4232,7 +4235,7 @@
 			}
 		};
 		var on_request_image_fallback_page_callback = function (req, status, data) {
-			req.stop();
+			req.stop(true);
 
 			if (status == API.OK) {
 				// Set info
@@ -4283,13 +4286,13 @@
 				if (!this.active) return;
 
 				// Stop state
-				if (this.request_gallery.stop()) {
+				if (this.request_gallery.stop(false)) {
 					this.request_gallery.delay(GalleryDownloader.DELAY_ABORT);
 				}
-				if (this.request_image_page.stop()) {
+				if (this.request_image_page.stop(false)) {
 					this.request_image_page.delay(GalleryDownloader.DELAY_ABORT);
 				}
-				if (this.request_image.stop()) {
+				if (this.request_image.stop(false)) {
 					this.request_image.delay(GalleryDownloader.DELAY_ABORT);
 				}
 
