@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze
-// @version        1.0.1.2
+// @version        1.0.2
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -29,139 +29,209 @@
 
 
 	// Classes required for fast exit
-	// URL hash reader
-	var HashReader = (function () {
+	// Hash updating
+	var Hash = (function () {
 
-		var HashReader = {
+		var Hash = function () {
+			var self = this;
 
-			encode_hash: function (path, vars, no_pretty) {
-				var str = hash_prefix;
+			// Vars
+			this.path = "";
+			this.path_array = [];
+			this.vars = {};
+			this.vars_array = [];
 
-				if (typeof(path) == "string") {
-					str += path;
-				}
-				else {
-					str += path.join("/");
-				}
-
-				if (vars) {
-					str += hash_var_separator;
-					str += HashReader.encode_vars(vars, no_pretty);
-				}
-
-				return str;
-			},
-			decode_hash: function (hash, no_pretty) {
-				var i = 0;
-
-				// Remove prefix
-				while (i < hash_prefix.length && hash[i] == hash_prefix[i]) ++i;
-				if (i > 0) hash = hash.substr(i);
-
-				// Split parts
-				i = hash.indexOf(hash_var_separator);
-				if (i >= 0) {
-					return [ hash.substr(0, i) , HashReader.decode_vars(hash.substr(i + hash_var_separator.length), no_pretty) ];
-				}
-				else {
-					return [ hash , null ];
-				}
-			},
-
-			encode_vars: function (vars, no_pretty) {
-				var str = "",
-					escape_fcn = (no_pretty === true) ? escape_var_simple : escape_var,
-					v;
-
-				if (Array.isArray(vars)) {
-					// Array of vars
-					for (v = 0; v < vars.length; ++v) {
-						if (v > 0) str += "&";
-
-						str += escape_fcn(vars[v][0]);
-						if (vars[v].length > 1) {
-							str += "=";
-							str += escape_fcn(vars[v][1]);
-						}
-					}
-				}
-				else {
-					// Object of vars
-					for (v in vars) {
-						if (str.length > 0) str += "&";
-
-						str += escape_fcn(v);
-						if (vars[v] !== null) {
-							str += "=";
-							str += escape_fcn(vars[v]);
-						}
-					}
-				}
-
-				return str;
-			},
-			decode_vars: function (str, no_pretty) {
-				var vars = {},
-					str_split = str.split("&"),
-					escape_fcn = (no_pretty === true) ? unescape_var : unescape_var_pretty,
-					match, i;
-
-				for (i = 0; i < str_split.length; ++i) {
-					// Get the match
-					if (str_split[i].length === 0) continue;
-					match = re_decode_var.exec(str_split[i]);
-
-					// Set the var
-					vars[escape_fcn(match[1])] = (match[2]) ? escape_fcn(match[2]) : null;
-				}
-
-				// Return the vars
-				return vars;
-			},
-
-		};
-
-
-
-		var hash_prefix = "#!",
-			hash_var_separator = "?",
-			re_encode_pretty = /\%20/g,
-			re_decode_pretty = /\+/g,
-			re_decode_var = /^(.*?)(?:=(.*))?$/,
-			re_encode_simple = /[ %&=]/g,
-			re_encode_simple_map = {
-				" ": "+",
-				"%": "%25",
-				"&": "%26",
-				"=": "%3D",
+			// Change listeners
+			this.onchange_listener = function () {
+				trigger_change.call(self, "pop");
 			};
 
-		var escape_var = function (str) {
-			return encodeURIComponent(str).replace(re_encode_pretty, "+");
-		};
-		var escape_var_simple = function (str) {
-			return str.replace(re_encode_simple, function (m) {
-				return re_encode_simple_map[m[0]];
-			});
-		};
-		var unescape_var_pretty = function (str) {
-			return decodeURIComponent(str.replace(re_decode_pretty, "%20"));
-		};
-		var unescape_var = function (str) {
-			return decodeURIComponent(str);
+			this.change_listeners = [];
 		};
 
 
 
-		return HashReader;
+		var ParsedHash = function (hash_part) {
+			this.path = "";
+
+			if (hash_part === null) {
+				// Init to empty
+				this.path_array = [];
+				this.vars = {};
+				this.vars_array = [];
+			}
+			else {
+				// Don't init to objects
+				this.path_array = null;
+				this.vars = null;
+				this.vars_array = null;
+				parse_state.call(this, hash_part);
+			}
+		};
+
+
+
+		var hash_sep = "#!",
+			re_decode_var = /^(.*?)(?:=(.*))?$/,
+			re_parts = /^(.*?)(?:\?(.*?))?$/,
+			re_hash_find = /#(.*)$/,
+			re_remove_slashes = /^\/+|\/{2,}/g;
+
+		var encode_vars = function (vars) {
+			var str = "",
+				first = true,
+				v;
+
+			if (Array.isArray(vars)) {
+				for (v = 0; v < vars.length; ++v) {
+					if (v > 0) str += "&";
+
+					str += encodeURIComponent(vars[v][0]);
+					if (vars[v][1] !== null) {
+						str += "=";
+						str += encodeURIComponent(vars[v][1]);
+					}
+				}
+			}
+			else {
+				for (v in vars) {
+					if (first) first = false;
+					else str += "&";
+
+					str += encodeURIComponent(v);
+					if (vars[v] !== null) {
+						str += "=";
+						str += encodeURIComponent(vars[v]);
+					}
+				}
+			}
+
+			return str;
+		};
+
+		var parse_state = function (h) {
+			var i, m1, m2, s, k, v;
+
+			// Normalize
+			for (i = 0; i < hash_sep.length && h[i] === hash_sep[i]; ++i);
+			if (i > 0) h = h.substr(i);
+
+			// Match
+			m1 = re_parts.exec(h);
+
+			// Parse path
+			this.path = m1[1].replace(re_remove_slashes, "");
+			this.path_array = this.path.split("/");
+			for (i = 0; i < this.path_array.length; ++i) {
+				this.path_array[i] = decodeURIComponent(this.path_array[i]);
+			}
+
+			// Parse vars
+			this.vars = {};
+			this.vars_array = [];
+			if (m1[2] !== undefined) {
+				s = m1[2].split("&");
+
+				for (i = 0; i < s.length; ++i) {
+					// Skip
+					if (s[i].length === 0) continue;
+
+					// Match
+					m2 = re_decode_var.exec(s[i]);
+
+					// Set the var
+					k = decodeURIComponent(m2[1]);
+					v = (m2[2] === undefined) ? null : decodeURIComponent(m2[2]);
+					this.vars[k] = v;
+					this.vars_array.push([ k , v ]);
+				}
+			}
+		};
+
+		var trigger_change = function (reason) {
+			// Update state
+			parse_state.call(this, window.location.hash);
+
+			// Trigger a change event
+			for (var i = 0; i < this.change_listeners.length; ++i) {
+				this.change_listeners[i].call(null, this, reason);
+			}
+		};
+
+
+
+		Hash.sep = hash_sep;
+
+
+
+		Hash.prototype = {
+			init: function () {
+				// Events
+				window.addEventListener("popstate", this.onchange_listener, false);
+
+				// Init trigger
+				trigger_change.call(this, "init");
+			},
+
+			on_change: function (callback) {
+				this.change_listeners.push(callback);
+			},
+			off_change: function (callback) {
+				for (var i = 0; i < this.change_listeners.length; ++i) {
+					if (this.change_listeners[i] == callback) {
+						this.change_listeners.splice(i, 1);
+						return true;
+					}
+				}
+				return false;
+			},
+
+		};
+
+
+
+		Hash.decode = function (url) {
+			var m = re_hash_find.exec(url),
+				obj;
+
+			if (m !== null) {
+				obj = new ParsedHash(m[0]);
+			}
+			else {
+				obj = new ParsedHash(null);
+			}
+
+			return obj;
+		};
+		Hash.encode = function (path, vars) {
+			var str = hash_sep;
+
+			if (typeof(path) == "string") {
+				str += path;
+			}
+			else {
+				str += path.join("/");
+			}
+
+			if (vars) {
+				str += "?";
+				str += encode_vars(vars);
+			}
+
+			return str;
+		};
+
+
+
+		return Hash;
 
 	})();
 
 	// Quick exit
 	var eze_hash = null;
 	if (window.location.hostname == "forums.e-hentai.org") {
-		eze_hash = HashReader.decode_hash(window.location.hash);
-		if (eze_hash[0] != "eze") return; // No execute
+		eze_hash = Hash.decode(window.location.href);
+		if (eze_hash.path_array[0] != "eze") return; // No execute
 	}
 
 
@@ -1858,185 +1928,6 @@
 		}
 	};
 
-	// Hash updating
-	var Hash = (function () {
-
-		var Hash = function () {
-			var self = this;
-
-			// Vars
-			this.path = "";
-			this.path_array = [];
-			this.vars = {};
-			this.vars_array = [];
-
-			// Change listeners
-			this.onchange_listener = function () {
-				trigger_change.call(self, "pop");
-			};
-
-			this.change_listeners = [];
-		};
-
-
-
-		var ParsedHash = function (hash_part) {
-			this.path = "";
-
-			if (hash_part === null) {
-				// Init to empty
-				this.path_array = [];
-				this.vars = {};
-				this.vars_array = [];
-			}
-			else {
-				// Don't init to objects
-				this.path_array = null;
-				this.vars = null;
-				this.vars_array = null;
-				parse_state.call(this, hash_part);
-			}
-		};
-
-
-
-		var hash_sep = "#!",
-			re_decode_var = /^(.*?)(?:=(.*))?$/,
-			re_parts = /^(.*?)(?:\?(.*?))?$/,
-			re_hash_find = /#(.*)$/,
-			re_remove_slashes = /^\/+|\/{2,}/g;
-
-		var encode_vars = function (vars) {
-			var str = "",
-				first = true,
-				v;
-
-			if (Array.isArray(vars)) {
-				for (v = 0; v < vars.length; ++v) {
-					if (v > 0) str += "&";
-
-					str += encodeURIComponent(vars[v][0]);
-					if (vars[v][1] !== null) {
-						str += "=";
-						str += encodeURIComponent(vars[v][1]);
-					}
-				}
-			}
-			else {
-				for (v in vars) {
-					if (first) first = false;
-					else str += "&";
-
-					str += encodeURIComponent(v);
-					if (vars[v] !== null) {
-						str += "=";
-						str += encodeURIComponent(vars[v]);
-					}
-				}
-			}
-
-			return str;
-		};
-
-		var parse_state = function (h) {
-			var i, m1, m2, s, k, v;
-
-			// Normalize
-			for (i = 0; i < hash_sep.length && h[i] === hash_sep[i]; ++i);
-			if (i > 0) h = h.substr(i);
-
-			// Match
-			m1 = re_parts.exec(h);
-
-			// Parse path
-			this.path = m1[1].replace(re_remove_slashes, "");
-			this.path_array = this.path.split("/");
-			for (i = 0; i < this.path_array.length; ++i) {
-				this.path_array[i] = decodeURIComponent(this.path_array[i]);
-			}
-
-			// Parse vars
-			this.vars = {};
-			this.vars_array = [];
-			if (m1[2] !== undefined) {
-				s = m1[2].split("&");
-
-				for (i = 0; i < s.length; ++i) {
-					// Skip
-					if (s[i].length === 0) continue;
-
-					// Match
-					m2 = re_decode_var.exec(s[i]);
-
-					// Set the var
-					k = decodeURIComponent(m2[1]);
-					v = (m2[2] === undefined) ? null : decodeURIComponent(m2[2]);
-					this.vars[k] = v;
-					this.vars_array.push([ k , v ]);
-				}
-			}
-		};
-
-		var trigger_change = function (reason) {
-			// Update state
-			parse_state.call(this, window.location.hash);
-
-			// Trigger a change event
-			for (var i = 0; i < this.change_listeners.length; ++i) {
-				this.change_listeners[i].call(null, this, reason);
-			}
-		};
-
-
-
-		Hash.sep = hash_sep;
-
-
-
-		Hash.prototype = {
-			init: function () {
-				// Events
-				window.addEventListener("popstate", this.onchange_listener, false);
-
-				// Init trigger
-				trigger_change.call(this, "init");
-			},
-
-			parse: function (url) {
-				var m = re_hash_find.exec(url),
-					obj;
-
-				if (m !== null) {
-					obj = new ParsedHash(m[0]);
-				}
-				else {
-					obj = new ParsedHash(null);
-				}
-
-				return obj;
-			},
-
-			on_change: function (callback) {
-				this.change_listeners.push(callback);
-			},
-			off_change: function (callback) {
-				for (var i = 0; i < this.change_listeners.length; ++i) {
-					if (this.change_listeners[i] == callback) {
-						this.change_listeners.splice(i, 1);
-						return true;
-					}
-				}
-				return false;
-			},
-
-		};
-
-
-
-		return Hash;
-
-	})();
-
 
 
 	// Site specific classes/modules
@@ -2502,7 +2393,7 @@
 				}
 				if ((n = html.querySelector("#fav>div.i")) !== null) {
 					info = API.get_favorite_icon_info_from_node(n);
-					data.favorites.category = info[0]
+					data.favorites.category = info[0];
 					data.favorites.category_title = info[1];
 				}
 
@@ -3263,7 +3154,7 @@
 							// Favorited
 							if ((n = n1.querySelector(".id44 .i[title]")) !== null) {
 								info = API.get_favorite_icon_info_from_node(n);
-								data.favorites.category = info[0]
+								data.favorites.category = info[0];
 								data.favorites.category_title = info[1];
 							}
 						}
@@ -3310,7 +3201,7 @@
 							// Favorited
 							if ((n = n1.querySelector(".it3 .i[title]")) !== null) {
 								info = API.get_favorite_icon_info_from_node(n);
-								data.favorites.category = info[0]
+								data.favorites.category = info[0];
 								data.favorites.category_title = info[1];
 							}
 						}
@@ -3351,7 +3242,7 @@
 					search = page_part;
 				}
 				else {
-					search = m[2].substr(1).replace(new RegExp("(^|&)" + page_key + "=[^&]*/", "g"), function (m, prefix) {
+					search = m[2].substr(1).replace(new RegExp("(^|&)" + page_key + "=[^&]*/", "g"), function (full, prefix) {
 						found = true;
 						return prefix + page_part;
 					});
@@ -3710,7 +3601,7 @@
 	// Gallery downloader
 	var GalleryDownloader = (function () {
 
-		var GalleryDownloader = function (gallery) {
+		var GalleryDownloader = function (gallery, thumb_loader) {
 			// Vars
 			this.events = {
 				error: [],
@@ -3722,7 +3613,10 @@
 				image_page_progress: [],
 				image_get: [],
 				image_progress: [],
+				image_range_update: [],
 			};
+
+			this.thumb_loader = thumb_loader;
 
 			this.active = false;
 			this.state = GalleryDownloader.NOT_STARTED;
@@ -3749,10 +3643,14 @@
 
 			this.page_count = 0;
 			this.current = 0;
+			this.image_id = 0;
 			this.images = [];
 			this.image_counts = [ 0 , 0 , 0 , 0 , 0 ];
 			this.image_total_bytes = [ 0 , 0 , 0 ];
 			this.image_total_bytes_loaded = 0;
+			this.images_downloading = 0;
+
+			this.image_ranges = [];
 		};
 
 
@@ -3792,7 +3690,7 @@
 						this.progress_reset();
 					}
 					else {
-						this.request = null
+						this.request = null;
 					}
 					return true;
 				}
@@ -3929,6 +3827,60 @@
 			}
 		};
 
+		var validate_image = function (image_id) {
+			// All
+			if (this.image_ranges.length === 0) return true;
+
+			// Convert to 1-indexed
+			++image_id;
+
+			// Check if it's in a range
+			for (var i = 0, r; i < this.image_ranges.length; ++i) {
+				r = this.image_ranges[i];
+				if (image_id  >= r[0] && image_id <= r[1]) return true;
+			}
+
+			// Wasn't in any range
+			return false;
+		};
+		var approximate_total_size = function (size) {
+			// Multiply the size by the % of images in  the range(s) for an approximation
+			return size * (this.images_downloading / this.gal_info.image_count);
+		};
+		var update_image_ranges = function () {
+			// Normalize
+			var max = this.gal_info.image_count,
+				i = 0;
+
+			this.images_downloading = 0;
+
+			for (i = 0; i < this.image_ranges.length; ++i) {
+				if (this.image_ranges[i][0] > max) {
+					// Remove remaining
+					this.image_ranges.splice(i, this.image_ranges.length - i);
+					break;
+				}
+				else if (this.image_ranges[i][1] === null || this.image_ranges[i][1] > max) {
+					this.image_ranges[i][1] = max;
+				}
+				this.images_downloading += (this.image_ranges[i][1] - this.image_ranges[i][0]) + 1;
+			}
+
+			// Convert to all
+			if (this.image_ranges.length === 1 && this.image_ranges[0][0] <= 1 && this.image_ranges[0][1] >= max) {
+				this.image_ranges.splice(0, this.image_ranges.length);
+			}
+
+			if (this.image_ranges.length === 0) {
+				this.images_downloading = max;
+			}
+
+			// Trigger event
+			trigger.call(this, "image_range_update", {
+				downloader: this,
+			});
+		};
+
 		var request_gallery_page = function (req) {
 			// Request
 			req.request = API.get_gallery(
@@ -3961,7 +3913,8 @@
 				if (this.gal_info === null) {
 					this.gal_info = data;
 					this.gal_title_info = API.get_gallery_title_info(this.gal_info.title);
-					this.image_total_bytes[GalleryDownloader.IMAGE_NOT_ACQUIRED] = this.gal_info.total_file_size_approx;
+					update_image_ranges.call(this);
+					this.image_total_bytes[GalleryDownloader.IMAGE_NOT_ACQUIRED] = approximate_total_size.call(this, this.gal_info.total_file_size_approx);
 				}
 				// Page count
 				if (this.page_count === 0) {
@@ -3982,21 +3935,31 @@
 
 				// Get images and add
 				var images = API.get_gallery_images_from_html(response),
+					count = 0,
 					i;
 
 				for (i = 0; i < images.length; ++i) {
-					this.images.push({
-						info_from_gallery: images[i],
-						info: null,
-						info_fallback: null,
-						byte_data: null,
-						used: {
-							method: GalleryDownloader.IMAGE_NOT_ACQUIRED,
+					if (validate_image.call(this, this.image_id)) {
+						this.images.push({
+							info_from_gallery: images[i],
 							info: null,
-						},
-					});
+							info_fallback: null,
+							byte_data: null,
+							image_id: this.image_id,
+							used: {
+								method: GalleryDownloader.IMAGE_NOT_ACQUIRED,
+								info: null,
+							},
+						});
+
+						++count;
+					}
+					++this.image_id;
 				}
-				this.image_counts[GalleryDownloader.IMAGE_NOT_ACQUIRED] += images.length;
+				this.image_counts[GalleryDownloader.IMAGE_NOT_ACQUIRED] += count;
+
+				// Update page
+				this.thumb_loader.add_page_from_html(response, req.index);
 
 				// Next
 				req.next("gallery_page_get");
@@ -4376,6 +4339,106 @@
 				return this.request_image.request === null ? 0 : this.request_image.progress_loaded;
 			},
 
+			set_image_ranges: function (text) {
+				if (this.gal_info !== null) return false; // Cannot be set once started
+
+				// Parse
+				var parts = text.split(","),
+					ranges = [],
+					re = /^\s*(?:([0-9]+)\s*(-\s*([0-9]+)?)?|(?:-\s*([0-9]+)?)|(all))\s*$/i,
+					min_value = 1,
+					i, m, v1, v2, vt, r;
+
+				for (i = 0; i < parts.length; ++i) {
+					if ((m = re.exec(parts[i])) === null) continue;
+
+					if (m[1] !== undefined) {
+						v1 = Math.max(min_value, parseInt(m[1], 10));
+						if (m[2] === undefined) {
+							// "x"
+							v2 = v1;
+						}
+						else if (m[3] === undefined) {
+							// "x-"
+							v2 = null;
+							if (v1 <= min_value) {
+								// "1-" is the same as "all"
+								this.image_ranges = [];
+								return true;
+							}
+						}
+						else {
+							// "x-y"
+							v2 = Math.max(min_value, parseInt(m[3], 10));
+							if (v2 < v1) {
+								// Flip
+								vt = v1;
+								v1 = v2;
+								v2 = vt;
+							}
+						}
+					}
+					else if (m[4] !== undefined) {
+						// "-x"
+						v1 = 1;
+						v2 = Math.max(min_value, parseInt(m[4], 10));
+					}
+					else {
+						// "all" | "-"
+						this.image_ranges = [];
+						return true;
+					}
+
+					ranges.push([ v1 , v2 ]);
+				}
+
+				// Sort
+				ranges.sort(function (a, b) {
+					if (a[0] === b[0]) return 0;
+					return (a[0] < b[0]) ? -1 : 1;
+				});
+
+				// Normalize
+				this.image_ranges = [ (r = ranges[0]) ];
+				for (i = 1; i < ranges.length; ++i) {
+					if (r[1] === null) break;
+
+					if (ranges[i][0] <= r[1] + 1) {
+						r[1] = ranges[i][1];
+					}
+					else {
+						this.image_ranges.push((r = ranges[i]));
+					}
+				}
+
+				// Okay
+				return true;
+			},
+			get_image_ranges: function () {
+				// All
+				if (this.image_ranges.length === 0) return "all";
+
+				// Form string
+				var s = "",
+					i, v;
+
+				for (i = 0; i < this.image_ranges.length; ++i) {
+					v = this.image_ranges[i];
+
+					if (i > 0) s += ", ";
+
+					s += v[0];
+					if (v[1] !== v[0]) {
+						s += "-";
+						if (v[1] !== null) {
+							s += v[1];
+						}
+					}
+				}
+
+				return s;
+			},
+
 			on: function (event, callback) {
 				if (event in this.events) {
 					this.events[event].push(callback);
@@ -4406,12 +4469,12 @@
 	// Gallery downloader (GUI/manager)
 	var GalleryDownloadManager = (function () {
 
-		var GalleryDownloadManager = function (gallery, container) {
+		var GalleryDownloadManager = function (gallery, container, thumb_loader) {
 			// Vars
 			var n0;
 
 			// Create
-			this.loader = new GalleryDownloader(gallery);
+			this.loader = new GalleryDownloader(gallery, thumb_loader);
 			this.zip = new ZipCreator();
 			this.zip_blob = null;
 			this.zip_blob_url = null;
@@ -4420,6 +4483,7 @@
 			this.filename_mode = constants.MAIN_NAME_FULL;
 			this.filename_ext_mode = constants.FILE_EXTENSION_ZIP;
 			this.image_naming_mode = constants.IMAGE_NAMING_SINGLE_NUMBER;
+			this.numbering_mode = constants.NUMBERING_RENUMBER;
 
 			this.zip_info_json_name = "info.json";
 			this.zip_info_json_mode = constants.JSON_READABLE_2SPACE;
@@ -4435,6 +4499,7 @@
 			this.node_opts_filename_ext_mode = null;
 			this.node_opts_image_naming_mode = null;
 			this.node_opts_zip_info_json_mode = null;
+			this.node_opts_numbering_mode = null;
 
 			this.node_progress_gallery = null;
 			this.node_progress_gallery_text = null;
@@ -4451,6 +4516,8 @@
 
 			this.node_failure_timeout = null;
 			this.node_failure_retry_max = null;
+
+			this.node_file_ranges = null;
 
 			// Create nodes
 			n0 = $("div", "eze_gallery_custom_container_inner", [ //{
@@ -4495,6 +4562,25 @@
 					$("div", "eze_dl_setting", [
 						$("div", "eze_dl_setting_row", [
 							$("div", "eze_dl_setting_cell", [
+								$("div", "eze_dl_setting_title", "Download ranges"),
+								$("div", "eze_dl_setting_desc", [
+									$.text("Page range(s) to download; hover the following examples for more info:"),
+									$("span", "eze_dl_setting_desc_tag", "all", { title: "Downloads all images; whitespace is ignored" }),
+									$("span", "eze_dl_setting_desc_tag", "4 - 16, 18, 27 - 37", { title: "Downloads 25 images; image ranges are inclusive" }),
+									$("span", "eze_dl_setting_desc_tag", "32 -", { title: "Downloads images 32 to the end; omitting a number defaults to first/last image" }),
+									$("span", "eze_dl_setting_desc_tag", "- 31", { title: "Downloads images 1 - 31 inclusive; first number is omitted in this case" }),
+								]),
+							]),
+							$("div", "eze_dl_setting_cell", [
+								$("div", [
+									this.node_file_ranges = $("input", "eze_dl_setting_input", { type: "text" }),
+								]),
+							]),
+						]),
+					]),
+					$("div", "eze_dl_setting", [
+						$("div", "eze_dl_setting_row", [
+							$("div", "eze_dl_setting_cell", [
 								$("div", "eze_dl_setting_title", "Output filename"),
 								$("div", "eze_dl_setting_desc", "Set the primary output .zip file's name"),
 							]),
@@ -4523,6 +4609,20 @@
 									[ "Short gallery name + number", constants.IMAGE_NAMING_SHORT_NAME ],
 									[ "Original filenames", constants.IMAGE_NAMING_ORIGINAL_NAME ],
 								], this.image_naming_mode, bind(on_option_image_name_change, this)),
+							]),
+						]),
+					]),
+					$("div", "eze_dl_setting", [
+						$("div", "eze_dl_setting_row", [
+							$("div", "eze_dl_setting_cell", [
+								$("div", "eze_dl_setting_title", "Image numbering"),
+								$("div", "eze_dl_setting_desc", "How to set the image numbers if download ranges are used"),
+							]),
+							$("div", "eze_dl_setting_cell", [
+								this.node_opts_numbering_mode = create_option_box([
+									[ "Re-number to start at 1", constants.NUMBERING_RENUMBER ],
+									[ "Use the original numbers", constants.NUMBERING_ORIGINAL ],
+								], this.numbering_mode, bind(on_option_numbering_mode_change, this)),
 							]),
 						]),
 					]),
@@ -4588,6 +4688,7 @@
 			this.node_failure_retry_max.value = this.loader.get_image_max_retry_count();
 			this.node_full_image_checkbox.checked = this.loader.get_use_full_images();
 			this.node_zip_info_json_name.value = this.zip_info_json_name;
+			this.node_file_ranges.value = this.loader.get_image_ranges();
 
 			// Setup events
 			this.node_main_link.addEventListener("click", bind(on_main_link_click, this));
@@ -4595,6 +4696,7 @@
 			this.node_failure_timeout.addEventListener("change", bind(on_option_failure_timeout_change, this));
 			this.node_failure_retry_max.addEventListener("change", bind(on_option_failure_retry_max_change, this));
 			this.node_zip_info_json_name.addEventListener("change", bind(on_option_zip_info_json_name_change, this));
+			this.node_file_ranges.addEventListener("change", bind(on_option_file_ranges_change, this));
 
 			this.loader.on("error", bind(on_loader_error, this));
 			this.loader.on("active_change", bind(on_loader_active_change, this));
@@ -4603,6 +4705,7 @@
 			this.loader.on("image_page_get", bind(on_loader_image_page_get, this));
 			this.loader.on("image_get", bind(on_loader_image_get, this));
 			this.loader.on("image_progress", bind(on_loader_image_progress, this));
+			this.loader.on("image_range_update", bind(on_loader_image_range_update, this));
 
 			// Load settings
 			load_values.call(this);
@@ -4631,6 +4734,9 @@
 			IMAGE_NAMING_SHORT_NAME: 2,
 			IMAGE_NAMING_ORIGINAL_NAME: 3,
 
+			NUMBERING_RENUMBER: 0,
+			NUMBERING_ORIGINAL: 1,
+
 			JSON_OMIT: 0,
 			JSON_COMPRESSED: 1,
 			JSON_READABLE_2SPACE: 2,
@@ -4654,6 +4760,7 @@
 				filename_mode: this.filename_mode,
 				filename_ext_mode: this.filename_ext_mode,
 				image_naming_mode: this.image_naming_mode,
+				numbering_mode: this.numbering_mode,
 				zip_info_json_name: this.zip_info_json_name,
 				zip_info_json_mode: this.zip_info_json_mode,
 				use_full_images: this.loader.get_use_full_images(),
@@ -4678,6 +4785,10 @@
 					if (validate(value.image_naming_mode, [ constants.IMAGE_NAMING_SINGLE_NUMBER , constants.IMAGE_NAMING_FULL_NAME , constants.IMAGE_NAMING_SHORT_NAME , constants.IMAGE_NAMING_ORIGINAL_NAME ])) {
 						self.image_naming_mode = value.image_naming_mode;
 						set_option_box_value(self.node_opts_image_naming_mode, self.image_naming_mode);
+					}
+					if (validate(value.numbering_mode, [ constants.NUMBERING_RENUMBER , constants.NUMBERING_ORIGINAL ])) {
+						self.numbering_mode = value.numbering_mode;
+						set_option_box_value(self.node_opts_numbering_mode, self.numbering_mode);
 					}
 					if (validate(value.zip_info_json_mode, [ constants.JSON_OMIT , constants.JSON_COMPRESSED , constants.JSON_READABLE_2SPACE , constants.JSON_READABLE_4SPACE , constants.JSON_READABLE_TABS ])) {
 						self.zip_info_json_mode = value.zip_info_json_mode;
@@ -5018,12 +5129,13 @@
 				this.node_main_link.setAttribute("download", base_name);
 			}
 		};
-		var set_image_naming_mode = function (mode) {
+		var set_image_naming_mode = function (mode, number_mode) {
 			// No change
-			if (this.image_naming_mode == mode) return;
+			if (this.image_naming_mode == mode && this.numbering_mode == number_mode) return;
 
 			// Update
 			this.image_naming_mode = mode;
+			this.numbering_mode = number_mode;
 
 			// No change
 			if (this.gal_info === null) return;
@@ -5083,7 +5195,9 @@
 			}
 			else {
 				// Append number
-				var number = "" + (index + 1);
+				var n = (this.numbering_mode == constants.NUMBERING_RENUMBER ? index : image_data.image_id),
+					number = "" + (n + 1);
+
 				while (number.length < digit_count) number = "0" + number;
 
 				base_name += number;
@@ -5259,7 +5373,7 @@
 		};
 		var on_option_image_name_change = function (value) {
 			// Update image naming mode
-			set_image_naming_mode.call(this, value);
+			set_image_naming_mode.call(this, value, this.numbering_mode);
 
 			// Save
 			save_values.call(this);
@@ -5334,6 +5448,19 @@
 
 			// Save
 			save_values.call(this);
+		};
+		var on_option_numbering_mode_change = function (value) {
+			// Update image naming mode
+			set_image_naming_mode.call(this, this.image_naming_mode, value);
+
+			// Save
+			save_values.call(this);
+		};
+		var on_option_file_ranges_change = function () {
+			// Update
+			var node = this.node_file_ranges;
+			this.loader.set_image_ranges(node.value);
+			node.value = this.loader.get_image_ranges();
 		};
 
 		var on_main_link_click = function (event) {
@@ -5426,10 +5553,232 @@
 			// Hide error
 			this.node_info_error.classList.remove("eze_dl_info_visible");
 		};
+		var on_loader_image_range_update = function () {
+			// Update node
+			this.node_file_ranges.value = this.loader.get_image_ranges();
+		};
 
 
 
 		return GalleryDownloadManager;
+
+	})();
+
+	// Gallery thumnail loader
+	var ThumbnailLoader = (function () {
+
+		var ThumbnailLoader = function (gid, token, page_info, checkbox, status_node) {
+			// Vars
+			this.pages = [];
+			this.gallery = {
+				gid: gid,
+				token: token,
+			};
+			this.count = page_info.count;
+			this.start = Math.max(0, Math.min(this.count - 1, page_info.current));
+			this.completed = 1;
+			this.index = this.start;
+			this.checkbox = checkbox;
+			this.status_node = status_node;
+
+			this.delay = 1.0;
+
+			this.request = null;
+			this.timeout = null;
+
+			this.container = $("div", "eze_gallery_page_container");
+
+			// Setup pages
+			for (var i = 0; i < this.count; ++i) {
+				this.pages.push(null);
+			}
+
+			// Start node
+			var n = document.querySelector("#gdt");
+			if (n !== null) {
+				// Set page
+				this.pages[this.start] = stylize_page.call(this, n, this.start);
+
+				// Container
+				n.parentNode.insertBefore(this.container, n);
+				this.container.appendChild(n);
+			}
+
+			// Events
+			this.checkbox.addEventListener("change", bind(on_checkbox_change, this, this.checkbox), false);
+
+			// Update
+			update_checkbox.call(this);
+			update_status.call(this);
+		};
+
+
+
+		var begin_request = function () {
+			var increase = (this.index >= this.start);
+			if (increase) {
+				while (true) {
+					if (++this.index >= this.count) {
+						this.index = this.start;
+						increase = false;
+						break;
+					}
+					if (this.pages[this.index] === null) break;
+				}
+			}
+
+			if (!increase) {
+				while (true) {
+					// Done
+					if (--this.index < 0) {
+						this.index = 0;
+						return;
+					}
+					if (this.pages[this.index] === null) break;
+				}
+			}
+
+			this.request = API.request_document(
+				"/g/" + this.gallery.gid + "/" + this.gallery.token + "?p=" + this.index,
+				bind(on_response_load, this),
+				bind(on_response_error, this)
+			);
+		};
+		var on_response_load = function (response, status) {
+			// Clear
+			this.request = null;
+			if (status == 200) {
+				// Okay
+				if (this.add_page_from_html(response, this.index)) {
+					// Next
+					var self = this;
+					this.timeout = setTimeout(function () {
+						begin_request.call(self);
+					}, this.delay * 1000);
+					return;
+				}
+			}
+
+			// Stop
+			update_checkbox.call(this);
+		};
+		var on_response_error = function () {
+			// Stop
+			this.request = null;
+			update_checkbox.call(this);
+		};
+
+		var stylize_page = function (node, index) {
+			// Style
+			node.removeAttribute("id");
+			node.classList.add("eze_gallery_page");
+			node.setAttribute("data-eze-page-id", index);
+
+			// Indicator
+			$("a", "eze_gallery_page_indicator", {
+				href: "/g/" + this.gallery.gid + "/" + this.gallery.token + (index <= 0 ? "" : "?p=" + index),
+				target: "_blank",
+			}, [
+				$("span", "eze_gallery_page_indicator_border_top"),
+				$("span", "eze_gallery_page_indicator_border"),
+				$("span", "eze_gallery_page_indicator_text", "Page " + (index + 1)),
+			], $.P, node);
+
+			// Done
+			return node;
+		};
+
+		var update_checkbox = function () {
+			this.checkbox.checked = (this.completed >= this.count || this.request !== null || this.timeout !== null);
+		};
+		var update_status = function () {
+			this.status_node.textContent = "(" + this.completed + "/" + this.count + ")";
+		};
+
+		var on_checkbox_change = function (node) {
+			if (node.checked) {
+				this.resume();
+			}
+			else {
+				this.pause();
+			}
+
+			update_checkbox.call(this);
+		};
+
+
+
+		ThumbnailLoader.prototype = {
+			constructor: ThumbnailLoader,
+
+			resume: function () {
+				// Done
+				if (this.completed >= this.count || this.request !== null || this.timeout !== null) return;
+
+				// Start
+				begin_request.call(this);
+			},
+			pause: function () {
+				// Done
+				if (this.completed >= this.count) return;
+
+				// Stop
+				if (this.request !== null) {
+					this.request.abort();
+					this.request = null;
+				}
+				if (this.timeout !== null) {
+					clearTimeout(this.timeout);
+					this.timeout = null;
+				}
+			},
+
+			add_page_from_html: function (html, page_index) {
+				if (page_index < 0 || page_index >= this.pages.length || this.pages[page_index] !== null) return false;
+
+				// Find node
+				var n = html.querySelector("#gdt"),
+					rel = null,
+					i;
+
+				if (n !== null) {
+					// Set
+					this.pages[page_index] = stylize_page.call(this, n, page_index);
+
+					// Find relative;
+					for (i = page_index + 1; i < this.count; ++i) {
+						if (this.pages[i] !== null) {
+							rel = this.pages[i];
+							break;
+						}
+					}
+
+					// Add
+					if (rel === null || rel.parentNode !== this.container) {
+						this.container.appendChild(this.pages[page_index]);
+					}
+					else {
+						this.container.insertBefore(this.pages[page_index], rel);
+					}
+
+					// Done?
+					if (++this.completed >= this.count) {
+						update_checkbox.call(this);
+					}
+					update_status.call(this);
+
+					// Okay
+					return true;
+				}
+
+				// Error
+				return false;
+			},
+		};
+
+
+
+		return ThumbnailLoader;
 
 	})();
 
@@ -5533,6 +5882,8 @@
 			".eze_dl_setting_cell:not(:first-of-type)>div+div{margin-top:0.125em;}",
 			".eze_dl_setting_title{font-size:1.25em;font-weight:bold;}",
 			".eze_dl_setting_desc{}",
+			".eze_dl_setting_desc_tag{background-color:{{color:bg}};padding:0.125em 0.375em;display:inline-block;border-radius:0.5em;margin-left:0.5em;}",
+			".eze_dl_setting:nth-of-type(2n) .eze_dl_setting_desc_tag{background-color:{{color:bg_light}};}",
 			".eze_dl_setting_input{border:1px solid {{color:border}};background-color:{{color:bg_dark}};color:{{color:text}};padding:0.125em;line-height:1.25em;width:10em;font-family:inherit;}",
 			".eze_dl_setting_input.eze_dl_setting_input_small{width:4em;}",
 			".eze_dl_option_box{display:inline-block;border:1px solid {{color:border}};background-color:{{color:bg_dark}};line-height:1.5em;padding:0 0.25em;height:1.5em;overflow:hidden;text-align:center;cursor:pointer;}",
@@ -5598,45 +5949,91 @@
 
 	var create_custom_search_links = (function () {
 
+		var links = [
+			{
+				title: "Search by gallery name",
+				primary: 0,
+				links: [
+					{
+						title: "Search by name",
+						url: "/?f_doujinshi=1&f_manga=1&f_artistcg=1&f_gamecg=1&f_western=1&f_non-h=1&f_imageset=1&f_cosplay=1&f_asianporn=1&f_misc=1&f_search=\"{short}\"",
+					},
+					{
+						title: "Search by exact name",
+						url: "/?f_doujinshi=1&f_manga=1&f_artistcg=1&f_gamecg=1&f_western=1&f_non-h=1&f_imageset=1&f_cosplay=1&f_asianporn=1&f_misc=1&f_search=\"{full}\"",
+					},
+				],
+			},
+			{
+				title: "Search on nhentai.net",
+				primary: 0,
+				links: [
+					{
+						title: "Search by name",
+						url: "//nhentai.net/search/?q=\"{short}\"",
+					},
+					{
+						title: "Search by exact name",
+						url: "//nhentai.net/search/?q=\"{full}\"",
+					},
+				],
+			},
+		];
+
+
+
 		var create_custom_search_links = function (gal_info) {
 			var title_info = API.get_gallery_title_info(gal_info.title),
-				link1, link2, n1, n2;
+				nodes = [],
+				replacers = {},
+				re_replacer = /\{(\w+)\}/g,
+				replacer_fn, node_links, i, j, n, li;
 
-			// Search exhentai by title
-			link1 = "/?f_doujinshi=1&f_manga=1&f_artistcg=1&f_gamecg=1&f_western=1&f_non-h=1&f_imageset=1&f_cosplay=1&f_asianporn=1&f_misc=1&f_search=\"" + encodeURIComponent(title_info.title.replace(/,/g, " ")) + "\"";
-			link2 = "/?f_doujinshi=1&f_manga=1&f_artistcg=1&f_gamecg=1&f_western=1&f_non-h=1&f_imageset=1&f_cosplay=1&f_asianporn=1&f_misc=1&f_search=\"" + encodeURIComponent(gal_info.title.replace(/,/g, " ")) + "\"";
-			n1 = $("a", "eze_gallery_link", "Search by gallery name", { href: link1, target: "_blank" },
-				$.ON, [ "click", on_search_link_click, false, [ $.node, link1, link2 ] ]
-			);
+			// Replacers
+			replacers.full = encodeURIComponent(gal_info.title.replace(/,/g, " "));
+			replacers.short = encodeURIComponent(title_info.title.replace(/,/g, " "));
+			replacer_fn = function (full, key) {
+				return (key in replacers) ? replacers[key] : full;
+			};
 
-			// Search nhentai by title
-			link1 = "//nhentai.net/search/?q=\"" + encodeURIComponent(title_info.title) + "\"";
-			link2 = "//nhentai.net/search/?q=\"" + encodeURIComponent(gal_info.title) + "\"";
-			n2 = $("a", "eze_gallery_link", "Search on nhentai.net", { href: link1, target: "_blank" },
-				$.ON, [ "click", on_search_link_click, false, [ $.node, link1, link2 ] ]
-			);
+			// Create
+			for (i = 0; i < links.length; ++i) {
+				li = links[i];
+
+				// Setup links
+				node_links = [];
+				for (j = 0; j < li.links.length; ++j) {
+					node_links.push(li.links[j].title);
+					node_links.push(li.links[j].url.replace(re_replacer, replacer_fn));
+				}
+
+				// Create node
+				n = $("a", "eze_gallery_link", li.title || "", { href: node_links[li.primary * 2 + 1], target: "_blank" });
+				if (li.links.length > 1) {
+					n.addEventListener("click", bind(on_search_link_click, n, node_links), false);
+				}
+				nodes.push(n);
+			}
 
 			// Done
-			return [ n1 , n2 ];
+			return nodes;
 		};
 
 
 
-		var on_search_link_click = function (link1, link2, event) {
+		var on_search_link_click = function (node_links, event) {
 			// Skip
 			if (event.which != 1) return;
 
 			// Create menu
 			var menu = new Menu(),
-				opt;
+				opt, i;
 
-			opt = menu.add_option("Search by name");
-			opt.setAttribute("href", link1);
-			opt.setAttribute("target", "_blank");
-
-			opt = menu.add_option("Search by exact name");
-			opt.setAttribute("href", link2);
-			opt.setAttribute("target", "_blank");
+			for (i = 0; i < node_links.length; i += 2) {
+				opt = menu.add_option(node_links[i]);
+				opt.setAttribute("href", node_links[i + 1]);
+				opt.setAttribute("target", "_blank");
+			}
 
 			menu.on("select", function (event) {
 				// Follow link
@@ -5649,8 +6046,6 @@
 			// Stop
 			event.preventDefault();
 			event.stopPropagation();
-			event = null;
-			opt = null;
 			return false;
 		};
 
@@ -5672,10 +6067,9 @@
 
 	var setup_search = (function () {
 
-		var setup_search = function () {
+		var setup_search = function (page_type) {
 			var re_pattern = /\b(exhentai|e-hentai)/i,
-				h_nav = new Hash(),
-				nodes, i, n1, n2;
+				nodes, i, n1, n2, m;
 
 			nodes = document.querySelectorAll("h1.ih");
 			for (i = 0; i < nodes.length; ++i) {
@@ -5696,9 +6090,27 @@
 				n1.appendChild(n2);
 			}
 
+			// Make favorites classes clickable (WHY: onclick="document.location='http://exhentai.org/favorites.php?favcat='")
+			if (page_type === "favorites") {
+				nodes = document.querySelectorAll(".fp");
+				for (i = 0; i < nodes.length; ++i) {
+					n1 = nodes[i];
+					if ((m = /document\s*\.\s*location\s*=\s*'([^']*)'/.exec(n1.getAttribute("onclick") || "")) !== null) {
+						// Replace
+						n2 = document.createElement("a");
+						n2.setAttribute("href", m[1]);
+						n2.style.textDecoration = "none";
+						n1.parentNode.insertBefore(n2, n1);
+						n2.appendChild(n1);
+
+						// Remove onclick
+						n1.removeAttribute("onclick");
+					}
+				}
+			}
+
 			// Setup
 			h_nav.on_change(on_hash_change);
-			h_nav.init();
 		};
 
 		var on_hash_change = function (h) {
@@ -5799,7 +6211,7 @@
 		var create_custom_gallery_bar = function (gal_info) {
 			var page_info = API.get_pages_info_from_html(document.documentElement),
 				search_links = create_custom_search_links(gal_info),
-				thumb_loader, n0, n1, n2, n3, n4;
+				thumb_loader, i, n0, n1, n2, n3, n4, n5;
 
 			// DOM create
 			n0 = $("div", "gm eze_gallery_custom_container", [
@@ -5818,20 +6230,20 @@
 									n3 = $("a", "eze_gallery_link", "Download gallery"),
 								]),
 							]),
-							$("div", "eze_gallery_custom_cell", [
-								$("p", [ search_links[0] ]),
-								$("p", [ search_links[1] ]),
-							]),
+							n4 = $("div", "eze_gallery_custom_cell"),
 						]),
 					]),
 				]),
-				n4 = $("div", "eze_dl_container"),
+				n5 = $("div", "eze_dl_container"),
 			]);
 
+			// Search links
+			for (i = 0; i < search_links.length; ++i) {
+				$("p", [ search_links[i] ], $.P, n4);
+			}
+
 			// Thumbnail loader
-			n2.checked = false;
 			thumb_loader = new ThumbnailLoader(gal_info.gallery.gid, gal_info.gallery.token, page_info, n2, n1);
-			n2.addEventListener("change", bind(on_load_all_thumbnails_change, n2, thumb_loader), false);
 
 			// Download link
 			n3.addEventListener("click", bind(on_download_gallery_click, n3, {
@@ -5840,7 +6252,8 @@
 					token: gal_info.gallery.token,
 				},
 				loader: null,
-				container: n4,
+				thumb_loader: thumb_loader,
+				container: n5,
 			}), false);
 
 			// Done
@@ -5866,25 +6279,19 @@
 			return false;
 		};
 		*/
-		var on_load_all_thumbnails_change = function (thumb_loader) {
-			if (this.checked) {
-				thumb_loader.resume();
-			}
-			else {
-				thumb_loader.pause();
-			}
-
-			thumb_loader.update_checkbox();
-		};
 		var on_download_gallery_click = function (data, event) {
 			// Skip
 			if (event.which != 1) return;
 
 			if (data.loader === null) {
 				// Create loader
-				data.loader = new GalleryDownloadManager(data.gallery, data.container);
+				data.loader = new GalleryDownloadManager(data.gallery, data.container, data.thumb_loader);
 				delete data.gallery;
-				delete data.container;
+				delete data.thumb_loader;
+			}
+			else {
+				// Toggle visibility
+				data.container.classList.toggle("eze_dl_container_visible");
 			}
 
 			// Stop
@@ -5893,196 +6300,8 @@
 			return false;
 		};
 
-		var ThumbnailLoader = function (gid, token, page_info, checkbox, status_node) {
-			// Vars
-			this.pages = [];
-			this.gallery = {
-				gid: gid,
-				token: token,
-			};
-			this.count = page_info.count;
-			this.start = Math.max(0, Math.min(this.count - 1, page_info.current));
-			this.completed = 1;
-			this.index = this.start + 1;
-			this.checkbox = checkbox;
-			this.status_node = status_node;
 
-			this.delay = 1.0;
-
-			this.request = null;
-			this.timeout = null;
-
-			this.container = $("div", "eze_gallery_page_container");
-
-			if (this.index >= this.count) {
-				this.index = this.start - 1;
-				if (this.index < 0) {
-					this.index = 0;
-				}
-			}
-
-			// Setup pages
-			for (var i = 0; i < this.count; ++i) {
-				this.pages.push(null);
-			}
-
-			// Start node
-			var n = document.querySelector("#gdt");
-			if (n !== null) {
-				// Set page
-				this.stylize_page(n, this.start);
-				this.pages[this.start] = n;
-
-				// Container
-				n.parentNode.insertBefore(this.container, n);
-				this.container.appendChild(n);
-			}
-
-			// Update
-			this.update_checkbox();
-			this.update_status();
-		};
-		ThumbnailLoader.prototype = {
-			constructor: ThumbnailLoader,
-
-			resume: function () {
-				// Done
-				if (this.completed >= this.count || this.request !== null || this.timeout !== null) return;
-
-				// Start
-				this.begin_request();
-			},
-			pause: function () {
-				// Done
-				if (this.completed >= this.count) return;
-
-				// Stop
-				if (this.request !== null) {
-					this.request.abort();
-					this.request = null;
-				}
-				if (this.timeout !== null) {
-					clearTimeout(this.timeout);
-					this.timeout = null;
-				}
-			},
-
-			update_checkbox: function () {
-				this.checkbox.checked = (this.completed >= this.count || this.request !== null || this.timeout !== null);
-			},
-			update_status: function () {
-				this.status_node.textContent = "(" + this.completed + "/" + this.count + ")";
-			},
-
-			begin_request: function () {
-				this.request = API.request_document(
-					"/g/" + this.gallery.gid + "/" + this.gallery.token + "?p=" + this.index,
-					bind(this.on_response_load, this),
-					bind(this.on_response_error, this)
-				);
-			},
-			on_response_load: function (response, status) {
-				// Clear
-				this.request = null;
-				if (status == 200) {
-					// Okay
-					if (this.process_response(response)) {
-						// Next
-						this.next();
-						return;
-					}
-				}
-
-				// Stop
-				this.update_checkbox();
-			},
-			on_response_error: function () {
-				// Stop
-				this.request = null;
-				this.update_checkbox();
-			},
-			process_response: function (html) {
-				// Find node
-				var n = html.querySelector("#gdt"),
-					rel;
-
-				if (n !== null) {
-					// Set
-					this.stylize_page(n, this.index);
-					this.pages[this.index] = n;
-
-					// Add
-					if (this.index >= this.start) {
-						this.container.appendChild(n);
-					}
-					else {
-						rel = this.container.firstChild;
-						if (rel === null) {
-							this.container.appendChild(n);
-						}
-						else {
-							this.container.insertBefore(n, rel);
-						}
-					}
-
-					// Okay
-					return true;
-				}
-
-				// Error
-				return false;
-			},
-
-			next: function () {
-				// Change index
-				++this.completed;
-				this.update_status();
-
-				if (this.index >= this.start) {
-					++this.index;
-					if (this.index >= this.count) {
-						this.index = this.start - 1;
-					}
-				}
-				else {
-					--this.index;
-				}
-
-				// Done
-				if (this.index < 0) {
-					this.index = 0;
-					this.update_checkbox();
-					return;
-				}
-
-				// Timeout
-				var self = this;
-				this.timeout = setTimeout(function () {
-					self.begin_request();
-				}, this.delay * 1000);
-			},
-
-			stylize_page: function (node, index) {
-				// Style
-				node.removeAttribute("id");
-				node.classList.add("eze_gallery_page");
-				node.setAttribute("data-eze-page-id", index);
-
-				// Indicator
-				$("a", "eze_gallery_page_indicator", {
-					href: "/g/" + this.gallery.gid + "/" + this.gallery.token + (index <= 0 ? "" : "?p=" + index),
-					target: "_blank",
-				}, [
-					$("span", "eze_gallery_page_indicator_border_top"),
-					$("span", "eze_gallery_page_indicator_border"),
-					$("span", "eze_gallery_page_indicator_text", "Page " + (index + 1)),
-				], $.P, node);
-			},
-
-		};
-
-
-
+		
 		return setup_gallery;
 
 	})();
@@ -6111,7 +6330,7 @@
 			if (status != API.OK) return; // An error occured
 
 			var search_links = create_custom_search_links(gal_info),
-				n0, n1, i, k;
+				n0, n1, n2, i, k;
 
 			// Create DOM
 			n0 = $("div", "eze_main_container", [ //{
@@ -6181,9 +6400,7 @@
 										$("div", "eze_dgallery_row", [
 											$("div", "eze_dgallery_extra_container", [
 												// Extra stuff
-												$("p", [ search_links[0] ]),
-												$("p", [ search_links[1] ]),
-												$("p", [
+												n2 = $("p", [
 													$("a", "eze_gallery_link", "Modify favorite", {
 														href: "http://exhentai.org/gallerypopups.php?gid=" + gal_info.gallery.gid + "&t=" + gal_info.gallery.token + "&act=addfav",
 														target: "_blank",
@@ -6201,6 +6418,11 @@
 					]),
 				]),
 			]); //}
+
+			// Search links
+			for (i = 0; i < search_links.length; ++i) {
+				$("p", [ search_links[i] ], $.B, n2);
+			}
 
 			// Add tags
 			for (k in gal_info.tags) {
@@ -6262,16 +6484,16 @@
 
 		var setup_panda_forum_origin = null;
 		var setup_panda_forum_auto_run = false;
-		if (window.location.hostname == "forums.e-hentai.org" && eze_hash[0] == "eze") {
+		if (window.location.hostname == "forums.e-hentai.org" && eze_hash.path_array[0] == "eze") {
 			// Remove eze url
-			setup_panda_forum_origin = (eze_hash[1] ? eze_hash[1].origin : "") || "";
-			setup_panda_forum_auto_run = (eze_hash[1] ? eze_hash[1].auto == "true" : false);
+			setup_panda_forum_origin = eze_hash.vars.origin || "";
+			setup_panda_forum_auto_run = eze_hash.vars.auto == "true";
 			window.history.replaceState(null, "", window.location.pathname + window.location.search);
 
 			// Setup function
 			setup_panda.iframe_setup = function () {
 				// Setup
-				var auto_hash = HashReader.encode_hash("eze", [
+				var auto_hash = Hash.encode("eze", [
 					[ "origin", setup_panda_forum_origin ],
 					[ "auto", "true" ],
 				]);
@@ -6298,7 +6520,8 @@
 
 			this.iframe_container = null;
 			this.iframe = null;
-			this.iframe_target = "https://forums.e-hentai.org";
+			this.iframe_target_origin = "https://forums.e-hentai.org";
+			this.iframe_target = this.iframe_target_origin + "/index.php?act=Login&CODE=01";
 			this.iframe_loaded = false;
 			this.iframe_state = LoginGUI.STATE_INACTIVE;
 
@@ -6316,7 +6539,7 @@
 
 			// Events
 			window.addEventListener("message", function (event) {
-				if (event.origin == self.iframe_target) {
+				if (event.origin == self.iframe_target_origin) {
 					self.process_message(JSON.parse(event.data));
 				}
 			}, false);
@@ -6525,7 +6748,7 @@
 					// Create iframe
 					if (this.iframe === null) {
 						this.iframe = $("iframe", "eze_login_iframe", {
-							src: this.iframe_target + "/" + HashReader.encode_hash("eze", { origin: (window.location.protocol + "//" + window.location.host) }),
+							src: this.iframe_target + "/" + Hash.encode("eze", { origin: (window.location.protocol + "//" + window.location.host) }),
 						}, $.ON, [ "load", this.on_iframe_load, false, [ this ] ], $.P, this.iframe_container);
 
 						this.set_status("Loading login form...", false);
@@ -6584,6 +6807,11 @@
 				if (msg.method == "eze_request_login_ack") {
 					// Now processing
 					this.set_status("Processing login...", false);
+				}
+				else if (msg.method == "eze_request_login_captcha_required") {
+					// Captcha required
+					this.set_status("Captcha required", true);
+					// May make this work later
 				}
 				else if (msg.method == "eze_login_failed") {
 					// Error
@@ -6693,21 +6921,61 @@
 							method: "eze_request_login_ack",
 						});
 
-						// Create form
+						// Find form
 						var inputs = {
-							"CookieDate": "1",
-							"Privacy": "1",
-							"b": "",
-							"bt": "",
-							"UserName": msg.name,
-							"PassWord": msg.pass,
-							"act": "Login",
-							"CODE": "01",
-						};
-
-						var input_str = "",
+								"UserName": msg.name,
+								"PassWord": msg.pass,
+							},
+							input_str = "",
 							self = this,
-							i;
+							i, form, nodes, name, type;
+
+						nodes = document.querySelectorAll("form[action]");
+						for (i = 0; i < nodes.length; ++i) {
+							form = nodes[i];
+							if (form.querySelector("input[name=UserName]") !== null && form.querySelector("input[name=PassWord]") !== null) break;
+						}
+
+						// No form found; invalid
+						if (i >= nodes.length) {
+							self.send_message({
+								method: "eze_login_failed",
+								reason: "No form found",
+							});
+						}
+
+						// Create inputs
+						nodes = form.querySelectorAll("input");
+						for (i = 0; i < nodes.length; ++i) {
+							name = nodes[i].getAttribute("name");
+							if (!name || name in inputs) continue;
+
+							type = nodes[i].getAttribute("type").toLowerCase();
+							if (type == "checkbox" || type == "radio") {
+								if (nodes[i].checked) {
+									inputs[name] = "on";
+								}
+							}
+							else {
+								inputs[name] = nodes[i].value;
+							}
+						}
+
+						// Captcha?
+						if ("recaptcha_challenge_field" in inputs) {
+							if ("captcha" in msg) {
+								// Maybe later
+							}
+							else {
+								this.send_message({
+									method: "eze_request_login_captcha_required",
+									captcha_id: inputs.recaptcha_challenge_field,
+								});
+								return;
+							}
+						}
+
+						// Create input string
 						for (i in inputs) {
 							if (input_str.length > 0) input_str += "&";
 							input_str += encodeURIComponent(i) + "=" + encodeURIComponent("" + inputs[i]);
@@ -6715,7 +6983,7 @@
 
 						// Create XHR
 						var xhr = new XMLHttpRequest();
-						xhr.open("POST", "/index.php?act=Login&CODE=01", true);
+						xhr.open("POST", form.getAttribute("action"), true);
 						xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
 						xhr.responseType = "document";
 
@@ -6771,6 +7039,13 @@
 							reason: n.textContent,
 						});
 					}
+					else {
+						// Login error
+						this.send_message({
+							method: "eze_login_failed",
+							reason: "Login failed",
+						});
+					}
 				},
 
 				refresh_window: function () {
@@ -6807,6 +7082,7 @@
 
 
 	// Init
+	var h_nav = new Hash();
 	API.block_redirections();
 	on_ready(function () {
 		// Forums
@@ -6830,7 +7106,7 @@
 			setup_modifyied_titles();
 
 			if (page_type == "search" || page_type == "favorites") {
-				setup_search();
+				setup_search(page_type);
 			}
 			else if (page_type == "gallery") {
 				setup_gallery();
@@ -6839,6 +7115,9 @@
 				setup_gallery_deleted();
 			}
 		}
+
+		// Init hash navigation
+		h_nav.init();
 	});
 
 })();
