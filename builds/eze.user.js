@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.0.1
+// @version     1.0.1
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -1852,6 +1852,185 @@
 		}
 	};
 
+	// Hash updating
+	var Hash = (function () {
+
+		var Hash = function () {
+			var self = this;
+
+			// Vars
+			this.path = "";
+			this.path_array = [];
+			this.vars = {};
+			this.vars_array = [];
+
+			// Change listeners
+			this.onchange_listener = function () {
+				trigger_change.call(self, "pop");
+			};
+
+			this.change_listeners = [];
+		};
+
+
+
+		var ParsedHash = function (hash_part) {
+			this.path = "";
+
+			if (hash_part === null) {
+				// Init to empty
+				this.path_array = [];
+				this.vars = {};
+				this.vars_array = [];
+			}
+			else {
+				// Don't init to objects
+				this.path_array = null;
+				this.vars = null;
+				this.vars_array = null;
+				parse_state.call(this, hash_part);
+			}
+		};
+
+
+
+		var hash_sep = "#!",
+			re_decode_var = /^(.*?)(?:=(.*))?$/,
+			re_parts = /^(.*?)(?:\?(.*?))?$/,
+			re_hash_find = /#(.*)$/,
+			re_remove_slashes = /^\/+|\/{2,}/g;
+
+		var encode_vars = function (vars) {
+			var str = "",
+				first = true,
+				v;
+
+			if (Array.isArray(vars)) {
+				for (v = 0; v < vars.length; ++v) {
+					if (v > 0) str += "&";
+
+					str += encodeURIComponent(vars[v][0]);
+					if (vars[v][1] !== null) {
+						str += "=";
+						str += encodeURIComponent(vars[v][1]);
+					}
+				}
+			}
+			else {
+				for (v in vars) {
+					if (first) first = false;
+					else str += "&";
+
+					str += encodeURIComponent(v);
+					if (vars[v] !== null) {
+						str += "=";
+						str += encodeURIComponent(vars[v]);
+					}
+				}
+			}
+
+			return str;
+		};
+
+		var parse_state = function (h) {
+			var i, m1, m2, s, k, v;
+
+			// Normalize
+			for (i = 0; i < hash_sep.length && h[i] === hash_sep[i]; ++i);
+			if (i > 0) h = h.substr(i);
+
+			// Match
+			m1 = re_parts.exec(h);
+
+			// Parse path
+			this.path = m1[1].replace(re_remove_slashes, "");
+			this.path_array = this.path.split("/");
+			for (i = 0; i < this.path_array.length; ++i) {
+				this.path_array[i] = decodeURIComponent(this.path_array[i]);
+			}
+
+			// Parse vars
+			this.vars = {};
+			this.vars_array = [];
+			if (m1[2] !== undefined) {
+				s = m1[2].split("&");
+
+				for (i = 0; i < s.length; ++i) {
+					// Skip
+					if (s[i].length === 0) continue;
+
+					// Match
+					m2 = re_decode_var.exec(s[i]);
+
+					// Set the var
+					k = decodeURIComponent(m2[1]);
+					v = (m2[2] === undefined) ? null : decodeURIComponent(m2[2]);
+					this.vars[k] = v;
+					this.vars_array.push([ k , v ]);
+				}
+			}
+		};
+
+		var trigger_change = function (reason) {
+			// Update state
+			parse_state.call(this, window.location.hash);
+
+			// Trigger a change event
+			for (var i = 0; i < this.change_listeners.length; ++i) {
+				this.change_listeners[i].call(null, this, reason);
+			}
+		};
+
+
+
+		Hash.sep = hash_sep;
+
+
+
+		Hash.prototype = {
+			init: function () {
+				// Events
+				window.addEventListener("popstate", this.onchange_listener, false);
+
+				// Init trigger
+				trigger_change.call(this, "init");
+			},
+
+			parse: function (url) {
+				var m = re_hash_find.exec(url),
+					obj;
+
+				if (m !== null) {
+					obj = new ParsedHash(m[0]);
+				}
+				else {
+					obj = new ParsedHash(null);
+				}
+
+				return obj;
+			},
+
+			on_change: function (callback) {
+				this.change_listeners.push(callback);
+			},
+			off_change: function (callback) {
+				for (var i = 0; i < this.change_listeners.length; ++i) {
+					if (this.change_listeners[i] == callback) {
+						this.change_listeners.splice(i, 1);
+						return true;
+					}
+				}
+				return false;
+			},
+
+		};
+
+
+
+		return Hash;
+
+	})();
+
 
 
 	// Site specific classes/modules
@@ -1900,6 +2079,24 @@
 				tags: {},
 				petition_expunge: 0,
 				petition_rename: [ 0 , 0 ],
+			};
+		};
+		var create_blank_gallery_stub = function () {
+			return {
+				gallery: {
+					gid: 0,
+					token: "",
+				},
+				title: "",
+				date_uploaded: null,
+				category: "",
+				uploader: null,
+				favorites: {
+					category: -1,
+					category_title: null,
+				},
+				file_count: null,
+				thumbnail: "",
 			};
 		};
 		var create_blank_gallery_image_data = function () {
@@ -2222,20 +2419,11 @@
 
 				if ((par = html.querySelectorAll("#gdd tr")).length >= 6) {
 					// Date uploaded
-					pattern = /([0-9]+)-([0-9]+)-([0-9]+)\s+([0-9]+):([0-9]+)/;
 					if (
 						(n = par[0].querySelector(".gdt2")) !== null &&
-						(m = pattern.exec(n.textContent))
+						(m = API.get_date_uploaded_from_node(n)) !== null
 					) {
-						data.date_uploaded = (new Date(
-							parseInt(m[1], 10), // year
-							parseInt(m[2], 10) - 1, // month
-							parseInt(m[2], 10), // day
-							parseInt(m[3], 10), // hours
-							parseInt(m[4], 10), // minutes
-							0, // seconds
-							0 // milliseconds
-						)).getTime();
+						data.date_uploaded = m;
 					}
 
 					// Image count/size
@@ -2307,11 +2495,9 @@
 					data.favorites.count = parseInt(n.textContent.trim(), 10);
 				}
 				if ((n = html.querySelector("#fav>div.i")) !== null) {
-					data.favorites.category_title = n.getAttribute("title") || "";
-					pattern = /background-position\s*:\s*\d+(?:px)?\s+(-?\d+)(?:px)/;
-					if ((m = pattern.exec(n.getAttribute("style") || ""))) {
-						data.favorites.category = Math.floor((Math.abs(parseInt(m[1], 10)) - 2) / 19);
-					}
+					info = API.get_favorite_icon_info_from_node(n);
+					data.favorites.category = info[0]
+					data.favorites.category_title = info[1];
 				}
 
 				// Petitions
@@ -2759,6 +2945,34 @@
 				return data;
 			},
 
+			get_favorite_icon_info_from_node: function (node) {
+				var title = node.getAttribute("title") || "",
+					m = /background-position\s*:\s*\d+(?:px)?\s+(-?\d+)(?:px)/.exec(node.getAttribute("style") || ""),
+					category = -1;
+
+				if (m !== null) {
+					category = Math.floor((Math.abs(parseInt(m[1], 10)) - 2) / 19);
+				}
+
+				return [ category , title ];
+			},
+			get_date_uploaded_from_node: function (node) {
+				// Date uploaded
+				var m = /([0-9]+)-([0-9]+)-([0-9]+)\s+([0-9]+):([0-9]+)/.exec(node.textContent);
+
+				if (m === null) return null;
+
+				return (new Date(
+					parseInt(m[1], 10), // year
+					parseInt(m[2], 10) - 1, // month
+					parseInt(m[2], 10), // day
+					parseInt(m[3], 10), // hours
+					parseInt(m[4], 10), // minutes
+					0, // seconds
+					0 // milliseconds
+				)).getTime();
+			},
+
 			get_image_info: function (gid, key, page, api_key, direct_id, callback, on_load, on_error, on_complete, on_progress) {
 				if (api_key && direct_id === null) {
 					// Request using JSON
@@ -2988,7 +3202,7 @@
 					return "gallery_deleted";
 				}
 				else if ((n = html.querySelector("img[src]")) !== null) {
-					if (n.getAttribute("src") == window.location.href) {
+					if (n.getAttribute("src") === window.location.href && window.location.pathname.substr(0, 3) !== "/t/") {
 						return "panda";
 					}
 				}
@@ -3001,6 +3215,150 @@
 				return api_site;
 			},
 
+			get_search_page_results: function (html) {
+				var results = [],
+					nodes = html.querySelectorAll("div.itg>.id1"),
+					i, n, n1, node, m, data, info;
+
+				if (nodes.length > 0) {
+					for (i = 0; i < nodes.length; ++i) {
+						node = nodes[i];
+						data = create_blank_gallery_stub();
+						results.push(data);
+
+						// Title, ID/token
+						if ((n = node.querySelector(".id2>a")) !== null) {
+							data.title = n.textContent.trim();
+							if ((info = API.get_gallery_url_info(n.getAttribute("href") || "")) !== null) {
+								data.gallery.gid = info.gid;
+								data.gallery.token = info.token;
+							}
+						}
+
+						// Thumbnail
+						if ((n = node.querySelector(".id3>a>img[src]")) !== null) {
+							data.thumbnail = n.getAttribute("src");
+						}
+
+						if ((n1 = node.querySelector(".id4")) !== null) {
+							// Category
+							if ((n = n1.querySelector(".id41[title]")) !== null) {
+								data.category = n.getAttribute("title").toLowerCase();
+							}
+
+							// Files
+							if (
+								(n = n1.querySelector(".id42")) !== null &&
+								(m = /\s*([0-9]+)\s*files?/i.exec(n.textContent)) !== null
+							) {
+								data.file_count = parseInt(m[1], 10);
+							}
+
+							// Favorited
+							if ((n = n1.querySelector(".id44 .i[title]")) !== null) {
+								info = API.get_favorite_icon_info_from_node(n);
+								data.favorites.category = info[0]
+								data.favorites.category_title = info[1];
+							}
+						}
+					}
+				}
+				else if ((nodes = html.querySelectorAll("table.itg .gtr0,table.itg .gtr1")).length > 0) {
+					for (i = 0; i < nodes.length; ++i) {
+						node = nodes[i];
+						data = create_blank_gallery_stub();
+						results.push(data);
+
+						// Category
+						if ((n = node.querySelector(".itdc>a>img[alt]")) !== null) {
+							data.category = n.getAttribute("alt").toLowerCase();
+						}
+
+						// Uploader
+						if ((n = node.querySelector(".itu>div>a")) !== null) {
+							data.uploader = n.textContent.trim();
+						}
+
+						if ((n1 = node.querySelectorAll(".itd")).length >= 2) {
+							// Date
+							data.date_uploaded = API.get_date_uploaded_from_node(n1[0]);
+
+							// Title, ID/token
+							n1 = n1[1];
+							if ((n = n1.querySelector(".it5>a")) !== null) {
+								data.title = n.textContent.trim();
+								if ((info = API.get_gallery_url_info(n.getAttribute("href") || "")) !== null) {
+									data.gallery.gid = info.gid;
+									data.gallery.token = info.token;
+								}
+							}
+
+							// Thumbnail
+							if ((n = n1.querySelector(".it2>img[src]")) !== null) {
+								data.thumbnail = n.getAttribute("src");
+							}
+							else if ((n = n1.querySelector(".it2")) !== null) {
+								data.thumbnail = API.parse_init_image(n.textContent.trim());
+							}
+
+							// Favorited
+							if ((n = n1.querySelector(".it3 .i[title]")) !== null) {
+								info = API.get_favorite_icon_info_from_node(n);
+								data.favorites.category = info[0]
+								data.favorites.category_title = info[1];
+							}
+						}
+					}
+				}
+
+				return results;
+			},
+
+			parse_init_image: function (text) {
+				var m = /^init~([\w\-\.]+)~([^~]+)~(.*)$/.exec(text);
+
+				if (m === null) return null;
+
+				return window.location.protocol + "//" + m[1] + "/" + m[2];
+			},
+
+			form_page_url: function (html, page_id, include_hash) {
+				var node = html.querySelector(".ptt td.ptds>a"),
+					page_key = "page",
+					page_part = page_key + "=" + page_id,
+					found = false,
+					m, search;
+
+				if (node === null) return "?" + page_part;
+
+				// Gallery
+				if (html.querySelector(".gm h1#gn") !== null) {
+					page_key = "p";
+					page_part = page_key + "=" + page_id;
+				}
+
+				// Match
+				m = /^([^#\?]*)(\?[^#]*)?((?:#.*)?)$/.exec(node.getAttribute("href") || "");
+
+				// No search query found
+				if (m[2] === undefined) {
+					search = page_part;
+				}
+				else {
+					search = m[2].substr(1).replace(new RegExp("(^|&)" + page_key + "=[^&]*/", "g"), function (m, prefix) {
+						found = true;
+						return prefix + page_part;
+					});
+
+					if (!found) {
+						if (search.length > 0) page_part += "&";
+						search = page_part + search;
+					}
+				}
+
+				// Complete
+				return m[1] + "?" + search + (include_hash ? m[3] : "");
+			},
 		};
 
 
@@ -5301,15 +5659,67 @@
 		}
 	};
 
-	var setup_search = function () {
-		var re_pattern = /\b(exhentai|e-hentai)/i,
-			nodes, i;
+	var setup_search = (function () {
 
-		nodes = document.querySelectorAll("h1.ih");
-		for (i = 0; i < nodes.length; ++i) {
-			nodes[i].textContent = nodes[i].textContent.trim().replace(re_pattern, "Ez+$1");
-		}
-	};
+		var setup_search = function () {
+			var re_pattern = /\b(exhentai|e-hentai)/i,
+				h_nav = new Hash(),
+				nodes, i, n1, n2;
+
+			nodes = document.querySelectorAll("h1.ih");
+			for (i = 0; i < nodes.length; ++i) {
+				nodes[i].textContent = nodes[i].textContent.trim().replace(re_pattern, "Ez+$1");
+			}
+
+			// Add a random button
+			if ((n1 = document.querySelector("p+table.ptt")) !== null) {
+				n1 = n1.previousSibling;
+
+				n2 = document.createElement("span");
+				n2.textContent = " | ";
+				n1.appendChild(n2);
+
+				n2 = document.createElement("a");
+				n2.setAttribute("href", "#!eze?random");
+				n2.textContent = "random";
+				n1.appendChild(n2);
+			}
+
+			// Setup
+			h_nav.on_change(on_hash_change);
+			h_nav.init();
+		};
+
+		var on_hash_change = function (h) {
+			if (h.path_array[0] !== "eze") return;
+
+			if ("random" in h.vars) {
+				// Search for the page counters
+				var doc = document.documentElement,
+					pages = API.get_pages_info_from_html(doc);
+
+				if (pages !== null && pages.count > 0) {
+					// Go to a random page
+					var p_id = Math.floor(Math.random() * pages.count);
+					window.location.href = API.form_page_url(doc, p_id, false) + Hash.sep + "eze?random-gallery";
+				}
+			}
+			else if ("random-gallery" in h.vars) {
+				var results = API.get_search_page_results(document.documentElement);
+
+				if (results.length > 0) {
+					// Go to a random gallery
+					var g_id = Math.floor(Math.random() * results.length),
+						r = results[g_id];
+
+					window.location.href = "/g/" + r.gallery.gid + "/" + r.gallery.token;
+				}
+			}
+		};
+
+		return setup_search;
+
+	})();
 
 	var setup_gallery = (function () {
 
@@ -6408,7 +6818,7 @@
 			insert_stylesheet();
 			setup_modifyied_titles();
 
-			if (page_type == "search") {
+			if (page_type == "search" || page_type == "favorites") {
 				setup_search();
 			}
 			else if (page_type == "gallery") {
