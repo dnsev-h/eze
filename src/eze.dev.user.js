@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze
-// @version        1.0.2
+// @version        1.0.3
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -75,77 +75,31 @@
 			re_decode_var = /^(.*?)(?:=(.*))?$/,
 			re_parts = /^(.*?)(?:\?(.*?))?$/,
 			re_hash_find = /#(.*)$/,
-			re_remove_slashes = /^\/+|\/{2,}/g;
-
-		var encode_vars = function (vars) {
-			var str = "",
-				first = true,
-				v;
-
-			if (Array.isArray(vars)) {
-				for (v = 0; v < vars.length; ++v) {
-					if (v > 0) str += "&";
-
-					str += encodeURIComponent(vars[v][0]);
-					if (vars[v][1] !== null) {
-						str += "=";
-						str += encodeURIComponent(vars[v][1]);
-					}
-				}
-			}
-			else {
-				for (v in vars) {
-					if (first) first = false;
-					else str += "&";
-
-					str += encodeURIComponent(v);
-					if (vars[v] !== null) {
-						str += "=";
-						str += encodeURIComponent(vars[v]);
-					}
-				}
-			}
-
-			return str;
-		};
+			re_remove_slashes = /^\/+|\/{2,}/g,
+			re_encode_replacer = /\+|%20/ig,
+			encode_map = { "+": "%2B", "%20": "+" };
 
 		var parse_state = function (h) {
-			var i, m1, m2, s, k, v;
+			var i, m, v;
 
 			// Normalize
 			for (i = 0; i < hash_sep.length && h[i] === hash_sep[i]; ++i);
 			if (i > 0) h = h.substr(i);
 
 			// Match
-			m1 = re_parts.exec(h);
+			m = re_parts.exec(h);
 
 			// Parse path
-			this.path = m1[1].replace(re_remove_slashes, "");
+			this.path = m[1].replace(re_remove_slashes, "");
 			this.path_array = this.path.split("/");
 			for (i = 0; i < this.path_array.length; ++i) {
 				this.path_array[i] = decodeURIComponent(this.path_array[i]);
 			}
 
 			// Parse vars
-			this.vars = {};
-			this.vars_array = [];
-			if (m1[2] !== undefined) {
-				s = m1[2].split("&");
-
-				for (i = 0; i < s.length; ++i) {
-					// Skip
-					if (s[i].length === 0) continue;
-
-					// Match
-					m2 = re_decode_var.exec(s[i]);
-
-					// Set the var
-					k = decodeURIComponent(m2[1]);
-					v = (m2[2] === undefined) ? null : decodeURIComponent(m2[2]);
-					this.vars[k] = v;
-					this.vars_array.push([ k , v ]);
-				}
-			}
+			v = Hash.decode_vars(m[2] || "");
+			this.vars = v[0];
+			this.vars_array = v[1];
 		};
 
 		var trigger_change = function (reason) {
@@ -158,9 +112,6 @@
 			}
 		};
 
-
-
-		Hash.sep = hash_sep;
 
 
 
@@ -185,10 +136,11 @@
 				}
 				return false;
 			},
-
 		};
 
 
+
+		Hash.sep = hash_sep;
 
 		Hash.decode = function (url) {
 			var m = re_hash_find.exec(url),
@@ -215,10 +167,71 @@
 
 			if (vars) {
 				str += "?";
-				str += encode_vars(vars);
+				str += Hash.encode_vars(vars);
 			}
 
 			return str;
+		};
+		Hash.encode_component = function (c) {
+			return encodeURIComponent(c).replace(re_encode_replacer, function (m) {
+				return encode_map[m];
+			});
+		};
+		Hash.decode_component = function (c) {
+			return decodeURIComponent(c.replace(/\+/g, " "));
+		};
+		Hash.encode_vars = function (vars) {
+			var str = "",
+				first = true,
+				v;
+
+			if (Array.isArray(vars)) {
+				for (v = 0; v < vars.length; ++v) {
+					if (v > 0) str += "&";
+
+					str += Hash.encode_component(vars[v][0]);
+					if (vars[v][1] !== null) {
+						str += "=";
+						str += Hash.encode_component(vars[v][1]);
+					}
+				}
+			}
+			else {
+				for (v in vars) {
+					if (first) first = false;
+					else str += "&";
+
+					str += Hash.encode_component(v);
+					if (vars[v] !== null) {
+						str += "=";
+						str += Hash.encode_component(vars[v]);
+					}
+				}
+			}
+
+			return str;
+		};
+		Hash.decode_vars = function (var_str) {
+			var vars = {},
+				vars_array = [],
+				m, k, v, s, i;
+
+			s = var_str.split("&");
+			for (i = 0; i < s.length; ++i) {
+				// Skip
+				if (s[i].length === 0) continue;
+
+				// Match
+				m = re_decode_var.exec(s[i]);
+
+				// Set the var
+				k = Hash.decode_component(m[1]);
+				v = (m[2] === undefined) ? null : Hash.decode_component(m[2]);
+				vars[k] = v;
+				vars_array.push([ k , v ]);
+			}
+
+			return [ vars , vars_array ];
 		};
 
 
@@ -1388,7 +1401,7 @@
 				headers:
 					An object of headers
 		*/
-		var Ajax = function (method, url, data, settings, on_load, on_error, on_complete, on_progress) {
+		var Ajax = function (method, url, data, options, on_load, on_error, on_complete, on_progress) {
 			var extra, xhr_data, xhr, parser, okay, v;
 			extra = {
 				url: url,
@@ -1399,7 +1412,7 @@
 			this.abort = null;
 
 			// Run
-			if (settings && settings.use_gm && can_use_gm) {
+			if (options && options.use_gm && can_use_gm) {
 				// Setup xhr args
 				xhr_data = {
 					method: method,
@@ -1408,9 +1421,9 @@
 				parser = null;
 
 				// Setup
-				if (settings) {
-					if ("response_type" in settings) {
-						v = settings.response_type;
+				if (options) {
+					if ("response_type" in options) {
+						v = options.response_type;
 
 						if (v in response_parsers) {
 							parser = response_parsers[v];
@@ -1419,8 +1432,8 @@
 							xhr_data.overrideMimeType = "text/plain; charset=x-user-defined";
 						}
 					}
-					if ("headers" in settings) {
-						xhr_data.headers = settings.headers;
+					if ("headers" in options) {
+						xhr_data.headers = options.headers;
 					}
 				}
 
@@ -1501,18 +1514,18 @@
 				xhr.open(method, url, true);
 
 				// Setup
-				if (settings) {
-					if ("response_type" in settings) {
-						v = settings.response_type;
+				if (options) {
+					if ("response_type" in options) {
+						v = options.response_type;
 
 						xhr.responseType = v;
 						if (v == "arraybuffer") {
 							xhr.overrideMimeType("text/plain; charset=x-user-defined");
 						}
 					}
-					if ("headers" in settings) {
-						for (v in settings.headers) {
-							xhr.setRequestHeader(v, settings.headers[v]);
+					if ("headers" in options) {
+						for (v in options.headers) {
+							xhr.setRequestHeader(v, options.headers[v]);
 						}
 					}
 				}
@@ -1700,8 +1713,7 @@
 	// Page geometry
 	var Geometry = (function () {
 
-		var Geometry = {
-
+		return {
 			get_window_rect: function () {
 				var doc = document.documentElement,
 					left = (window.pageXOffset || doc.scrollLeft || 0) - (doc.clientLeft || 0),
@@ -1716,14 +1728,6 @@
 					bottom: top + height,
 					width: width,
 					height: height,
-				};
-			},
-			get_document_offset: function () {
-				var doc = document.documentElement;
-
-				return {
-					left: (window.pageXOffset || doc.scrollLeft || 0) - (doc.clientLeft || 0),
-					top: (window.pageYOffset || doc.scrollTop || 0)  - (doc.clientTop || 0),
 				};
 			},
 			get_object_rect: function (obj) {
@@ -1741,12 +1745,7 @@
 					height: bounds.height,
 				};
 			},
-
 		};
-
-
-
-		return Geometry;
 
 	})();
 
@@ -1843,6 +1842,10 @@
 						// Text
 						node.appendChild(document.createTextNode(arguments[++i]));
 					}
+					else if (a == $.CHECKED) {
+						// Checked
+						node.checked = !!arguments[++i];
+					}
 				}
 
 				// Next
@@ -1858,6 +1861,7 @@
 		$.P = $.PARENT = 3;
 		$.ON = $.EVENT = 4;
 		$.T = $.TEXT = 5;
+		$.CHECKED = 6;
 		$.node = {};
 
 
@@ -1927,6 +1931,90 @@
 			};
 		}
 	};
+
+	// Url parsing
+	var URLParts = (function () {
+
+		var URLParts = function (url_str) {
+			var m, url_part;
+
+			this.hash = "";
+			this.host = null;
+			this.hostname = null;
+			this.pathname = "";
+			this.protocol = null;
+			this.search = "";
+			this.slashes = false;
+			this.auth = null;
+			this.port = null;
+
+			if ((m = /^[a-z][a-z0-9\+\-\.]*:/i.exec(url_str)) !== null) {
+				this.protocol = m[0].toLowerCase();
+				url_str = url_str.substr(m[0].length);
+			}
+
+			if ((m = /^\/{2}/.exec(url_str)) !== null) {
+				this.slashes = true;
+				url_str = url_str.substr(m[0].length);
+
+				m = /([\/\?\#]|$)/.exec(url_str);
+				url_part = url_str.substr(0, m.index);
+				url_str = url_str.substr(m.index);
+
+				if ((m = /^(.*)@/i.exec(url_part)) !== null) {
+					this.auth = m[1];
+					url_part = url_part.substr(m[0].length);
+				}
+
+				if ((m = /:(\d*)$/i.exec(url_part)) !== null) {
+					this.port = parseInt(m[1], 10);
+					url_part = url_part.substr(0, m.index);
+				}
+
+				url_part = url_part.toLowerCase();
+				this.hostname = url_part;
+				this.host = url_part;
+				if (this.port !== null) this.host += ":" + this.port;
+			}
+
+			m = /([\?\#]|$)/.exec(url_str);
+			this.pathname = url_str.substr(0, m.index);
+			if (this.pathname.length === 0 && this.slashes) this.pathname = "/";
+			url_str = url_str.substr(m.index);
+
+			m = /([\#]|$)/.exec(url_str);
+			this.search = url_str.substr(0, m.index);
+			url_str = url_str.substr(m.index);
+
+			this.hash = url_str;
+		};
+
+		URLParts.prototype = {
+			constructor: URLParts,
+
+			join: function () {
+				var url_str = "";
+
+				if (this.protocol !== null) url_str += this.protocol;
+
+				if (this.slashes) {
+					url_str += "//";
+					if (this.auth !== null) url_str += this.auth + "@";
+					url_str += this.hostname;
+					if (this.port !== null) url_str += ":" + this.port;
+				}
+
+				url_str += this.pathname;
+				url_str += this.search;
+				url_str += this.hash;
+
+				return url_str;
+			},
+		};
+
+		return URLParts;
+
+	})();
 
 
 
@@ -2225,8 +2313,8 @@
 				if (title_split.length > 1) {
 					i = title_split.length - Math.floor(title_split.length / 2);
 
-					info.title_alt = title_split.slice(0, i).join("|");
-					info.title = title_split.slice(i).join("|");
+					info.title_alt = title_split.slice(0, i).join("|").trim();
+					info.title = title_split.slice(i).join("|").trim();
 				}
 				else {
 					info.title = title;
@@ -3080,17 +3168,20 @@
 			get_page_type_from_html: function (html) {
 				var n;
 
-				if ((n = html.querySelector("#searchbox")) !== null) {
+				if (html.querySelector("#searchbox") !== null) {
 					return "search";
 				}
-				else if ((n = html.querySelector("input.stdbtn[value='Search Favorites']")) !== null) {
+				else if (html.querySelector("input.stdbtn[value='Search Favorites']") !== null) {
 					return "favorites";
 				}
-				else if ((n = html.querySelector("#i1>h1")) !== null) {
+				else if (html.querySelector("#i1>h1") !== null) {
 					return "image";
 				}
-				else if ((n = html.querySelector(".gm h1#gn")) !== null) {
+				else if (html.querySelector(".gm h1#gn") !== null) {
 					return "gallery";
+				}
+				else if (html.querySelector(".stuffbox>form") !== null) {
+					return "settings";
 				}
 				else if (
 					(n = html.querySelector("body>.d>p")) !== null &&
@@ -3255,6 +3346,17 @@
 
 				// Complete
 				return m[1] + "?" + search + (include_hash ? m[3] : "");
+			},
+
+			modify_page_navigation_links: function (html, modify_fn) {
+				var pages = html.querySelectorAll(".ptt td,.ptb td"),
+					i, n;
+
+				for (i = 0; i < pages.length; ++i) {
+					if ((n = pages[i].querySelector("a")) !== null) {
+						modify_fn.call(null, pages[i], n);
+					}
+				}
 			},
 		};
 
@@ -3504,14 +3606,14 @@
 				return false;
 			},
 
-			add_option: function (data, settings) {
+			add_option: function (data, option_settings) {
 				var tag_type = "a",
 					tag_class = "eze_menu_option",
 					is_label = false,
 					opt, on_click;
 
-				if (settings) {
-					if (settings.label) {
+				if (option_settings) {
+					if (option_settings.label) {
 						tag_type = "div";
 						tag_class = "eze_menu_label";
 						is_label = true;
@@ -3595,6 +3697,135 @@
 
 
 		return Menu;
+
+	})();
+
+	// Option box
+	var OptionBox = (function () {
+
+		var OptionBox = function (options, selected_value, callback) {
+			var sel = null,
+				i, n, name, val;
+
+			this.callback = callback;
+			this.node = $("div", "eze_option_box");
+
+			for (i = 0; i < options.length; ++i) {
+				name = "" + options[i][0];
+				val = (options[i].length >= 2) ? options[i][1] : name;
+
+				n = $("div", "eze_option_box_entry", name, {
+					"data-eze-option-id": i,
+					"data-eze-value": JSON.stringify(val),
+				}, $.P, this.node);
+
+				if (sel === null || val == selected_value) sel = n;
+			}
+
+			if (sel !== null) {
+				sel.classList.add("eze_option_box_entry_selected");
+			}
+
+			this.node.addEventListener("click", bind(on_click, this), false);
+		};
+
+
+
+		var on_click = function (event) {
+			// Skip
+			if (event.which != 1) return;
+
+			var sel = this.node.querySelector(".eze_option_box_entry_selected"),
+				val;
+
+			// Deselect
+			if (sel !== null) {
+				sel.classList.remove("eze_option_box_entry_selected");
+
+				sel = sel.nextSibling;
+				if (sel === null) sel = this.node.firstChild;
+			}
+			else {
+				sel = this.node.firstChild;
+			}
+
+			if (sel !== null) {
+				// Select new
+				sel.classList.add("eze_option_box_entry_selected");
+
+				// Value
+				try {
+					val = JSON.parse(sel.getAttribute("data-eze-value") || "");
+				}
+				catch (e) {
+					val = null;
+				}
+				if (this.callback) this.callback.call(null, val, sel);
+			}
+
+			// Stop
+			event.preventDefault();
+			event.stopPropagation();
+			return false;
+		};
+
+
+
+		OptionBox.prototype = {
+			constructor: OptionBox,
+
+			get: function () {
+				var n = this.node.querySelector(".eze_option_box_entry_selected");
+
+				if (n === null) return null;
+
+				try {
+					return JSON.parse(n.getAttribute("data-eze-value") || "");
+				}
+				catch (e) {
+					return null;
+				}
+			},
+			set: function (target_value) {
+				var opts = this.node.querySelectorAll(".eze_option_box_entry"),
+					sel = null,
+					i, value, okay;
+
+				// Find correct value
+				for (i = 0; i < opts.length; ++i) {
+					try {
+						value = JSON.parse(opts[i].getAttribute("data-eze-value"));
+						okay = true;
+					}
+					catch (e) {
+						okay = false;
+					}
+
+					if (okay && value === target_value) {
+						sel = opts[i];
+						break;
+					}
+				}
+
+				if (sel !== null) {
+					// Deselect
+					opts = this.node.querySelectorAll(".eze_option_box_entry_selected");
+					for (i = 0; i < opts.length; ++i) {
+						opts[i].classList.remove("eze_option_box_entry_selected");
+					}
+
+					// Select
+					sel.classList.add("eze_option_box_entry_selected");
+					return true;
+				}
+
+				return false;
+			},
+		};
+
+
+
+		return OptionBox;
 
 	})();
 
@@ -4585,14 +4816,14 @@
 								$("div", "eze_dl_setting_desc", "Set the primary output .zip file's name"),
 							]),
 							$("div", "eze_dl_setting_cell", [
-								this.node_opts_filename_mode = create_option_box([
+								(this.node_opts_filename_mode = new OptionBox([
 									[ "Full gallery name", constants.MAIN_NAME_FULL ],
 									[ "Short gallery name", constants.MAIN_NAME_SHORT ],
-								], this.filename_mode, bind(on_option_filename_change, this)),
-								this.node_opts_filename_ext_mode = create_option_box([
+								], this.filename_mode, bind(on_option_filename_change, this))).node,
+								(this.node_opts_filename_ext_mode = new OptionBox([
 									[ ".zip", constants.FILE_EXTENSION_ZIP ],
 									[ ".cbz", constants.FILE_EXTENSION_CBZ ],
-								], this.filename_ext_mode, bind(on_option_filename_ext_change, this)),
+								], this.filename_ext_mode, bind(on_option_filename_ext_change, this))).node,
 							]),
 						]),
 					]),
@@ -4603,12 +4834,12 @@
 								$("div", "eze_dl_setting_desc", "Individual image naming method"),
 							]),
 							$("div", "eze_dl_setting_cell", [
-								this.node_opts_image_naming_mode = create_option_box([
+								(this.node_opts_image_naming_mode = new OptionBox([
 									[ "Single number", constants.IMAGE_NAMING_SINGLE_NUMBER ],
 									[ "Full gallery name + number", constants.IMAGE_NAMING_FULL_NAME ],
 									[ "Short gallery name + number", constants.IMAGE_NAMING_SHORT_NAME ],
 									[ "Original filenames", constants.IMAGE_NAMING_ORIGINAL_NAME ],
-								], this.image_naming_mode, bind(on_option_image_name_change, this)),
+								], this.image_naming_mode, bind(on_option_image_name_change, this))).node,
 							]),
 						]),
 					]),
@@ -4619,10 +4850,10 @@
 								$("div", "eze_dl_setting_desc", "How to set the image numbers if download ranges are used"),
 							]),
 							$("div", "eze_dl_setting_cell", [
-								this.node_opts_numbering_mode = create_option_box([
+								(this.node_opts_numbering_mode = new OptionBox([
 									[ "Re-number to start at 1", constants.NUMBERING_RENUMBER ],
 									[ "Use the original numbers", constants.NUMBERING_ORIGINAL ],
-								], this.numbering_mode, bind(on_option_numbering_mode_change, this)),
+								], this.numbering_mode, bind(on_option_numbering_mode_change, this))).node,
 							]),
 						]),
 					]),
@@ -4634,13 +4865,13 @@
 							]),
 							$("div", "eze_dl_setting_cell", [
 								$("div", [
-									this.node_opts_zip_info_json_mode = create_option_box([
+									(this.node_opts_zip_info_json_mode = new OptionBox([
 										[ "Omit", constants.JSON_OMIT ],
 										[ "Compressed", constants.JSON_COMPRESSED ],
 										[ "Human readable (2 space indent)", constants.JSON_READABLE_2SPACE ],
 										[ "Human readable (4 space indent)", constants.JSON_READABLE_4SPACE ],
 										[ "Human readable (tab indent)", constants.JSON_READABLE_TABS ],
-									], this.zip_info_json_mode, bind(on_option_zip_info_json_mode_change, this)),
+									], this.zip_info_json_mode, bind(on_option_zip_info_json_mode_change, this))).node,
 								]),
 								$("div", [
 									this.node_zip_info_json_name = $("input", "eze_dl_setting_input", { type: "text" }),
@@ -4776,23 +5007,23 @@
 					// Update
 					if (validate(value.filename_mode, [ constants.MAIN_NAME_FULL , constants.MAIN_NAME_SHORT ])) {
 						self.filename_mode = value.filename_mode;
-						set_option_box_value(self.node_opts_filename_mode, self.filename_mode);
+						self.node_opts_filename_mode.set(self.filename_mode);
 					}
 					if (validate(value.filename_ext_mode, [ constants.FILE_EXTENSION_ZIP , constants.FILE_EXTENSION_CBZ ])) {
 						self.filename_ext_mode = value.filename_ext_mode;
-						set_option_box_value(self.node_opts_filename_ext_mode, self.filename_ext_mode);
+						self.node_opts_filename_ext_mode.set(self.filename_ext_mode);
 					}
 					if (validate(value.image_naming_mode, [ constants.IMAGE_NAMING_SINGLE_NUMBER , constants.IMAGE_NAMING_FULL_NAME , constants.IMAGE_NAMING_SHORT_NAME , constants.IMAGE_NAMING_ORIGINAL_NAME ])) {
 						self.image_naming_mode = value.image_naming_mode;
-						set_option_box_value(self.node_opts_image_naming_mode, self.image_naming_mode);
+						self.node_opts_image_naming_mode.set(self.image_naming_mode);
 					}
 					if (validate(value.numbering_mode, [ constants.NUMBERING_RENUMBER , constants.NUMBERING_ORIGINAL ])) {
 						self.numbering_mode = value.numbering_mode;
-						set_option_box_value(self.node_opts_numbering_mode, self.numbering_mode);
+						self.node_opts_numbering_mode.set(self.numbering_mode);
 					}
 					if (validate(value.zip_info_json_mode, [ constants.JSON_OMIT , constants.JSON_COMPRESSED , constants.JSON_READABLE_2SPACE , constants.JSON_READABLE_4SPACE , constants.JSON_READABLE_TABS ])) {
 						self.zip_info_json_mode = value.zip_info_json_mode;
-						set_option_box_value(self.node_opts_zip_info_json_mode, self.zip_info_json_mode);
+						self.node_opts_zip_info_json_mode.set(self.zip_info_json_mode);
 					}
 					if ("zip_info_json_name" in value) {
 						self.zip_info_json_name = filename_normalize(value.zip_info_json_name || "");
@@ -5051,62 +5282,6 @@
 			this.node_info_count.textContent = s;
 		};
 
-		var create_option_box = function (options, selected_value, callback) {
-			var sel = null,
-				n0, n1, i;
-
-			n0 = $("div", "eze_dl_option_box");
-
-			for (i = 0; i < options.length; ++i) {
-				n1 = $("div", "eze_dl_option_box_entry", options[i][0], {
-					"data-eze-option-id": i,
-					"data-eze-value": JSON.stringify(options[i][1]),
-				}, $.P, n0);
-
-				if (sel === null || options[i][1] == selected_value) sel = n1;
-			}
-
-			if (sel !== null) {
-				sel.classList.add("eze_dl_option_box_entry_selected");
-			}
-
-			n0.addEventListener("click", bind(on_option_box_click, n0, callback), false);
-
-			return n0;
-		};
-		var set_option_box_value = function (option_box, target_value) {
-			var opts = option_box.querySelectorAll(".eze_dl_option_box_entry"),
-				sel = null,
-				i, value, okay;
-
-			// Find correct value
-			for (i = 0; i < opts.length; ++i) {
-				try {
-					value = JSON.parse(opts[i].getAttribute("data-eze-value"));
-					okay = true;
-				}
-				catch (e) {
-					okay = false;
-				}
-
-				if (okay && value === target_value) {
-					sel = opts[i];
-					break;
-				}
-			}
-
-			if (sel !== null) {
-				// Deselect
-				opts = option_box.querySelectorAll(".eze_dl_option_box_entry_selected");
-				for (i = 0; i < opts.length; ++i) {
-					opts[i].classList.remove("eze_dl_option_box_entry_selected");
-				}
-
-				// Select
-				sel.classList.add("eze_dl_option_box_entry_selected");
-			}
-		};
-
 		var update_final_filename = function () {
 			if (this.zip_blob_url !== null) {
 				// Get name
@@ -5315,44 +5490,6 @@
 			if (this.zip_blob !== null) {
 				create_zip.call(this);
 			}
-		};
-
-		var on_option_box_click = function (callback, event) {
-			// Skip
-			if (event.which != 1) return;
-
-			var sel = this.querySelector(".eze_dl_option_box_entry_selected"),
-				val;
-
-			// Deselect
-			if (sel !== null) {
-				sel.classList.remove("eze_dl_option_box_entry_selected");
-
-				sel = sel.nextSibling;
-				if (sel === null) sel = this.firstChild;
-			}
-			else {
-				sel = this.firstChild;
-			}
-
-			if (sel !== null) {
-				// Select new
-				sel.classList.add("eze_dl_option_box_entry_selected");
-
-				// Value
-				try {
-					val = JSON.parse(sel.getAttribute("data-eze-value") || "");
-				}
-				catch (e) {
-					val = null;
-				}
-				if (callback) callback.call(null, val, sel);
-			}
-
-			// Stop
-			event.preventDefault();
-			event.stopPropagation();
-			return false;
 		};
 
 		var on_option_filename_change = function (value) {
@@ -5782,6 +5919,156 @@
 
 	})();
 
+	// Script settings
+	var Settings = (function () {
+
+		var Settings = function () {
+			// Values and descriptors
+			this.values = {
+				custom_search_front_page: false,
+				custom_search_links: true,
+				custom_search_params: {},
+			};
+			this.validators = {
+				custom_search_front_page: is_boolean,
+				custom_search_links: is_boolean,
+				custom_search_params: is_object_not_null,
+			};
+
+			// Events
+			this.change_listeners = {};
+
+			// Load
+			this.save_prefix = "eze_";
+			load_all.call(this);
+
+			// Sync
+			var self = this;
+			this.sync = true;
+			this.sync_key = "eze_sync";
+			window.addEventListener("storage", function (event) {
+				if (self.sync && event.key == self.sync_key && event.newValue !== null) {
+					if (event.newValue in self.values) {
+						load_value.call(self, event.newValue, "sync");
+					}
+				}
+			}, false);
+		};
+
+
+
+		var is_boolean = function (obj) {
+			return typeof(obj) == "boolean";
+		};
+		var is_object_not_null = function (obj) {
+			return typeof(obj) == "object" && obj !== null;
+		};
+
+		var load_all = function () {
+			for (var k in this.values) {
+				load_value.call(this, k, null);
+			}
+		};
+		var load_value = function (name, reason) {
+			var self = this;
+			Save.get(this.save_prefix + name, function (v) {
+				if (v !== undefined && self.validators[name].call(null, v) === true) {
+					self.values[name] = v;
+					if (reason !== null) trigger_change.call(self, name, reason);
+				}
+			});
+		};
+
+		var trigger_change = function (name, reason) {
+			if (name in this.change_listeners) {
+				var list = this.change_listeners[name],
+					i = 0;
+
+				for (; i < list.length; ++i) {
+					list[i].call(null, settings, name, reason);
+				}
+			}
+		};
+
+
+
+		Settings.prototype = {
+			constructor: Settings,
+
+			get: function (name) {
+				// Get
+				return this.values[name];
+			},
+			set: function (name, value, callback) {
+				// Test
+				if (!(name in this.values) || !this.validators[name].call(null, value)) {
+					if (callback) callback.call(null, false);
+					return false;
+				}
+
+				// Memory
+				this.values[name] = value;
+
+				// Storage
+				Save.set(this.save_prefix + name, value, callback);
+
+				// Sync
+				if (this.sync) {
+					window.localStorage.setItem(this.sync_key, name);
+					window.localStorage.removeItem(this.sync_key);
+				}
+
+				// Event
+				trigger_change.call(this, name, "set");
+
+				// Done
+				return true;
+			},
+
+			on_change: function (name, callback) {
+				if (name in this.change_listeners) {
+					this.change_listeners[name].push(callback);
+					return true;
+				}
+				else if (name in this.values) {
+					this.change_listeners[name] = [ callback ];
+					return true;
+				}
+				return false;
+			},
+			off_change: function (name, callback) {
+				if (!(name in this.change_listeners)) return false;
+
+				var list = this.change_listeners[name],
+					i = 0;
+
+				for (; i < list.length; ++i) {
+					if (list[i] === callback) {
+						if (list.length <= 1) {
+							delete this.change_listeners[name];
+						}
+						else {
+							list.splice(i, 1);
+						}
+						return true;
+					}
+				}
+
+				return false;
+			},
+
+			set_sync_enabled: function (enabled) {
+				this.sync = enabled;
+			},
+
+		};
+
+
+
+		return Settings;
+
+	})();
+
 
 
 	// Main logic functions
@@ -5886,10 +6173,10 @@
 			".eze_dl_setting:nth-of-type(2n) .eze_dl_setting_desc_tag{background-color:{{color:bg_light}};}",
 			".eze_dl_setting_input{border:1px solid {{color:border}};background-color:{{color:bg_dark}};color:{{color:text}};padding:0.125em;line-height:1.25em;width:10em;font-family:inherit;}",
 			".eze_dl_setting_input.eze_dl_setting_input_small{width:4em;}",
-			".eze_dl_option_box{display:inline-block;border:1px solid {{color:border}};background-color:{{color:bg_dark}};line-height:1.5em;padding:0 0.25em;height:1.5em;overflow:hidden;text-align:center;cursor:pointer;}",
-			".eze_dl_option_box+.eze_dl_option_box{margin-left:0.5em;}",
-			".eze_dl_option_box_entry{display:block;height:1.5em;}",
-			".eze_dl_option_box_entry:not(.eze_dl_option_box_entry_selected){height:0;overflow:hidden;visibility:hidden;}",
+			".eze_option_box{display:inline-block;border:1px solid {{color:border}};background-color:{{color:bg_dark}};line-height:1.5em;padding:0 0.25em;height:1.5em;overflow:hidden;text-align:center;cursor:pointer;}",
+			".eze_option_box+.eze_option_box{margin-left:0.5em;}",
+			".eze_option_box_entry{display:block;height:1.5em;}",
+			".eze_option_box_entry:not(.eze_option_box_entry_selected){height:0;overflow:hidden;visibility:hidden;}",
 			".eze_dl_label>*{vertical-align:middle;}",
 
 			".eze_dgallery_table{display:table;width:100%;}",
@@ -5919,6 +6206,16 @@
 			".eze_menu_option{cursor:pointer;}",
 			".eze_menu_label{cursor:default;}",
 			".eze_menu_option:hover{background-color:{{color:bg_dark}};}",
+
+			".eze_settings_container:not(.eze_settings_container_visible){display:none;}",
+			".eze_settings_container.eze_settings_container_visible+.stuffbox{display:none;}",
+			".eze_settings_box{font-size:1.2em;text-align:center;margin:5px auto;width:700px;padding:5px;text-align:left;border:1px solid {{color:border}};background-color:{{color:bg_light}};}",
+			".eze_settings_header{margin:0 0 0.25em;padding:0;font-size:2em;}",
+			".eze_settings_entry_container{}",
+			".eze_settings_entry{padding:0.25em;}",
+			".eze_settings_entry:nth-of-type(2n){background-color:{{color:bg}};}",
+			".eze_settings_label>*{vertical-align:middle;}",
+			".eze_settings_pad_left{margin-left:0.5em;}",
 			].join(""), //}
 			vars
 		);
@@ -5987,7 +6284,7 @@
 				nodes = [],
 				replacers = {},
 				re_replacer = /\{(\w+)\}/g,
-				replacer_fn, node_links, i, j, n, li;
+				replacer_fn, node_links, i, j, n, li, url;
 
 			// Replacers
 			replacers.full = encodeURIComponent(gal_info.title.replace(/,/g, " "));
@@ -6003,8 +6300,13 @@
 				// Setup links
 				node_links = [];
 				for (j = 0; j < li.links.length; ++j) {
+					url = li.links[j].url.replace(re_replacer, replacer_fn);
+					if (settings.get("custom_search_links")) {
+						url = modify_search_url(url);
+					}
+
 					node_links.push(li.links[j].title);
-					node_links.push(li.links[j].url.replace(re_replacer, replacer_fn));
+					node_links.push(url);
 				}
 
 				// Create node
@@ -6055,6 +6357,53 @@
 
 	})();
 
+	var modify_search_url = function (url) {
+		var parts = new URLParts(url),
+			param_count = 0,
+			vars, params, i, k;
+
+		// External url, no change
+		if (parts.hostname !== null && parts.hostname !== window.location.hostname) return url;
+
+		// Update vars
+		vars = parts.search ? Hash.decode_vars(parts.search.substr(1))[1] : [];
+		params = settings.get("custom_search_params");
+		for (k in params) {
+			for (i = 0; i < vars.length; ++i) {
+				if (vars[i][0] == k) {
+					vars[i][1] = params[k];
+					break;
+				}
+			}
+			if (i == vars.length) {
+				vars.push([ k , params[k] ]);
+			}
+			++param_count;
+		}
+		if (param_count > 0) {
+			vars.push([ "f_apply", "Apply Filter" ]);
+		}
+
+		// Encode
+		parts.search = Hash.encode_vars(vars);
+		if (parts.search.length > 0) parts.search = "?" + parts.search;
+		return parts.join();
+	};
+
+	var setup_before_ready = function () {
+		if (settings.get("custom_search_front_page")) {
+			// Check for auto-search redirect
+			if (window.location.pathname == "/" && window.location.search === "" && window.location.hash === "" && window.history.length <= 1) {
+				var url = modify_search_url(window.location.href);
+				if (url != window.location.href) {
+					window.stop();
+					window.history.replaceState(null, "", url);
+					window.location.reload();
+				}
+			}
+		}
+	};
+
 	var setup_modifyied_titles = function () {
 		var re_pattern = /\b(exhentai|e-hentai)/i,
 			nodes, i;
@@ -6062,6 +6411,31 @@
 		nodes = document.querySelectorAll("title");
 		for (i = 0; i < nodes.length; ++i) {
 			nodes[i].textContent = nodes[i].textContent.trim().replace(re_pattern, "Ez+$1");
+		}
+	};
+
+	var setup_custom_settings_link = function () {
+		var nodes = [],
+			par, n, i, url;
+
+		// Custom link
+		if ((par = document.getElementById("nb")) !== null) {
+			$("img", { alt: "", src: "http://exhentai.org/img/mr.gif" }, $.P, par);
+			par.appendChild($.text(" "));
+			$("a", null, "Ez-Settings", { href: "/uconfig.php#!eze/settings" }, $.P, par);
+
+			if ((n = par.querySelector("a[href='http://exhentai.org/']")) !== null) nodes.push(n);
+		}
+
+		// Modify homepage links
+		if ((n = document.querySelector("#frontpage>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
+		if ((n = document.querySelector(".ip>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
+
+		if (nodes.length > 0 && settings.get("custom_search_front_page")) {
+			url = modify_search_url("http://exhentai.org/");
+			for (i = 0; i < nodes.length; ++i) {
+				nodes[i].setAttribute("href", url);
+			}
 		}
 	};
 
@@ -6109,7 +6483,7 @@
 				}
 			}
 
-			// Setup
+			// Setup navigation
 			h_nav.on_change(on_hash_change);
 		};
 
@@ -6301,7 +6675,7 @@
 		};
 
 
-		
+
 		return setup_gallery;
 
 	})();
@@ -7079,11 +7453,169 @@
 
 	})();
 
+	var setup_settings = (function () {
+
+		var setup_settings = function () {
+			// Setup navigation
+			h_nav.on_change(on_hash_change);
+		};
+
+
+
+		var on_hash_change = function (h) {
+			if (h.path_array.length < 2 || h.path_array[0] !== "eze" || h.path_array[1] !== "settings") {
+				hide_settings_panel();
+			}
+			else {
+				if (!show_settings_panel()) create_settings_panel();
+			}
+		};
+		var hide_settings_panel = function () {
+			var n = document.querySelector(".eze_settings_container");
+			if (n !== null) {
+				n.classList.remove("eze_settings_container_visible");
+				return true;
+			}
+			return false;
+		};
+		var show_settings_panel = function () {
+			var n = document.querySelector(".eze_settings_container");
+			if (n !== null) {
+				n.classList.add("eze_settings_container_visible");
+				return true;
+			}
+			return false;
+		};
+
+		var create_settings_panel = function () {
+			// Create
+			var rel = document.querySelector(".stuffbox"),
+				container = $("div", "eze_settings_container eze_settings_container_visible"),
+				params = settings.get("custom_search_params"),
+				n_min_rating, box;
+
+			n_min_rating = new OptionBox([ ["2"] , ["3"] , ["4"] , ["5"] ], ("f_srdd" in params ? params.f_srdd : "2"), function (value) {
+				var v = settings.get("custom_search_params");
+				if ("f_sr" in v) {
+					v.f_srdd = value;
+					settings.set("custom_search_params", v);
+				}
+			});
+
+			// Primary settings
+			box = $("div", "eze_settings_box", [
+				$("h1", "eze_settings_header", "Search link settings"),
+				$("div", "eze_settings_entry_container", [
+					$("div", "eze_settings_entry", [
+						$("label", "eze_settings_label", [
+							$("input", { type: "checkbox" }, $.ON, [ "change", on_checkbox_change, false, [ $.node, "custom_search_front_page" ] ], $.CHECKED, settings.get("custom_search_front_page")),
+							$("strong", null, "Apply these settings to the front page"),
+						]),
+					]),
+					$("div", "eze_settings_entry", [
+						$("label", "eze_settings_label", [
+							$("input", { type: "checkbox" }, $.ON, [ "change", on_checkbox_change, false, [ $.node, "custom_search_links" ] ], $.CHECKED, settings.get("custom_search_links")),
+							$("strong", null, "Apply these settings to custom search links"),
+						]),
+					]),
+					create_search_setting("Search gallery descriptions", "f_sdesc", "on"),
+					create_search_setting("Search low-power tags", "f_sdt1", "on"),
+					create_search_setting("Search downvoted tags", "f_sdt2", "on"),
+					create_search_setting("Search torrent filenames", "f_storr", "on"),
+					create_search_setting("Show exclusively galleries with torrents", "f_sto", "on"),
+					create_search_setting("Show expunged galleries", "f_sh", "on"),
+					$("div", "eze_settings_entry", [
+						$("label", "eze_settings_label", [
+							$("input", { type: "checkbox" }, $.ON, [ "change", on_search_setting2_change, false, [ $.node, "f_sr", "on", "f_srdd", n_min_rating ] ], $.CHECKED, "f_sr" in params),
+							$("span", null, "Minimum rating"),
+							n_min_rating.node,
+						]),
+					]),
+				]),
+				// minimum rating
+			], $.P, container);
+
+			n_min_rating.node.classList.add("eze_settings_pad_left");
+
+			// Add
+			if (rel !== null) {
+				rel.parentNode.insertBefore(container, rel);
+			}
+			else {
+				document.body.appendChild(container);
+			}
+		};
+		var create_search_setting = function (name, var_name, var_value) {
+			var checked = (var_name in settings.get("custom_search_params")),
+				n1;
+
+			n1 = $("div", "eze_settings_entry", [
+				$("label", "eze_settings_label", [
+					$("input", { type: "checkbox" }, $.ON, [ "change", on_search_setting_change, false, [ $.node, var_name, var_value ] ], $.CHECKED, checked),
+					$("span", null, name),
+				]),
+			]);
+
+			return n1;
+		};
+
+		var on_search_setting_change = function (var_name, var_value) {
+			var v = settings.get("custom_search_params");
+			if (this.checked) {
+				// Set
+				v[var_name] = var_value;
+				settings.set("custom_search_params", v);
+			}
+			else {
+				// Remove
+				if (var_name in v) {
+					delete v[var_name];
+					settings.set("custom_search_params", v);
+				}
+			}
+		};
+		var on_search_setting2_change = function (var_name, var_value, var_name2, option_box) {
+			var v = settings.get("custom_search_params");
+
+			if (this.checked) {
+				// Set
+				v[var_name] = var_value;
+				v[var_name2] = option_box.get();
+				settings.set("custom_search_params", v);
+			}
+			else {
+				// Remove
+				var changed = false;
+				if (var_name in v) {
+					delete v[var_name];
+					changed = true;
+				}
+				if (var_name2 in v) {
+					delete v[var_name2];
+					changed = true;
+				}
+				if (changed) {
+					settings.set("custom_search_params", v);
+				}
+			}
+		};
+		var on_checkbox_change = function (var_name) {
+			settings.set(var_name, this.checked);
+		};
+
+
+
+		return setup_settings;
+
+	})();
+
 
 
 	// Init
+	var settings = new Settings();
 	var h_nav = new Hash();
 	API.block_redirections();
+	setup_before_ready();
 	on_ready(function () {
 		// Forums
 		if (setup_panda.iframe_setup !== null) {
@@ -7104,6 +7636,7 @@
 			// Styling
 			insert_stylesheet();
 			setup_modifyied_titles();
+			setup_custom_settings_link();
 
 			if (page_type == "search" || page_type == "favorites") {
 				setup_search(page_type);
@@ -7113,6 +7646,9 @@
 			}
 			else if (page_type == "gallery_deleted") {
 				setup_gallery_deleted();
+			}
+			else if (page_type == "settings") {
+				setup_settings();
 			}
 		}
 
