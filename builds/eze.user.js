@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.3
+// @version     1.0.3.1
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -326,81 +326,81 @@
 			re_formatter, k, formatters;
 
 		formatters = {
-			"d": function (date) { // Day of the month, 2 digits with leading zeros
+			d: function (date) { // Day of the month, 2 digits with leading zeros
 				var s = date.getDate().toString();
 				if (s.length < 2) s = "0" + s;
 				return s;
 			},
-			"j": function (date) { // Day of the month without leading zeros
+			j: function (date) { // Day of the month without leading zeros
 				return date.getDate().toString();
 			},
-			"l": function (date) { // A full textual representation of the day of the week
+			l: function (date) { // A full textual representation of the day of the week
 				return days[date.getDay()];
 			},
-			"D": function (date) { // A textual representation of a day, three letters
+			D: function (date) { // A textual representation of a day, three letters
 				return days_short[date.getDay()];
 			},
-			"S": function (date) { // English ordinal suffix for the day of the month, 2 characters
+			S: function (date) { // English ordinal suffix for the day of the month, 2 characters
 				var i = (date.getDate() - 1); // % 100
 				if ((i < 10 || i > 19) && (i = i % 10) <= 3) return ordinals[i];
 				return ordinals[0];
 			},
-			"w": function (date) { // Numeric representation of the day of the week
+			w: function (date) { // Numeric representation of the day of the week
 				return date.getDay().toString();
 			},
-			"F": function (date) { // A full textual representation of a month, such as January or March
+			F: function (date) { // A full textual representation of a month, such as January or March
 				return months[date.getMonth()];
 			},
-			"M": function (date) { // A short textual representation of a month, three letters
+			M: function (date) { // A short textual representation of a month, three letters
 				return months_short[date.getMonth()];
 			},
-			"m": function (date) { // Numeric representation of a month, with leading zeros
+			m: function (date) { // Numeric representation of a month, with leading zeros
 				var s = (date.getMonth() + 1).toString();
 				if (s.length < 2) s = "0" + s;
 				return s;
 			},
-			"n": function (date) { // Numeric representation of a month, without leading zeros
+			n: function (date) { // Numeric representation of a month, without leading zeros
 				return (date.getMonth() + 1).toString();
 			},
-			"y": function (date) { // Year, 2 digits
+			y: function (date) { // Year, 2 digits
 				return date.getFullYear().toString().substr(2);
 			},
-			"Y": function (date) { // A full numeric representation of a year, 4 digits
+			Y: function (date) { // A full numeric representation of a year, 4 digits
 				return date.getFullYear().toString();
 			},
-			"a": function (date) { // Lowercase Ante meridiem and Post meridiem
+			a: function (date) { // Lowercase Ante meridiem and Post meridiem
 				return (date.getHours() >= 11 && date.getHours() <= 22 ? "pm" : "am");
 			},
-			"A": function (date) { // Uppercase Ante meridiem and Post meridiem
+			A: function (date) { // Uppercase Ante meridiem and Post meridiem
 				return (date.getHours() >= 11 && date.getHours() <= 22 ? "PM" : "AM");
 			},
-			"g": function (date) { // 12-hour format of an hour without leading zeros
+			g: function (date) { // 12-hour format of an hour without leading zeros
 				return ((date.getHours() % 12) + 1).toString();
 			},
-			"h": function (date) { // 12-hour format of an hour with leading zeros
+			h: function (date) { // 12-hour format of an hour with leading zeros
 				var s = ((date.getHours() % 12) + 1).toString();
 				if (s.length < 2) s = "0" + s;
 				return s;
 			},
-			"G": function (date) { // 24-hour format of an hour without leading zeros
+			G: function (date) { // 24-hour format of an hour without leading zeros
 				return date.getHours().toString();
 			},
-			"H": function (date) { // 24-hour format of an hour with leading zeros
+			H: function (date) { // 24-hour format of an hour with leading zeros
 				var s = date.getHours().toString();
 				if (s.length < 2) s = "0" + s;
 				return s;
 			},
-			"i": function (date) { // Minutes with leading zeros
+			i: function (date) { // Minutes with leading zeros
 				var s = date.getMinutes().toString();
 				if (s.length < 2) s = "0" + s;
 				return s;
 			},
-			"s": function (date) { // Seconds with leading zeros
+			s: function (date) { // Seconds with leading zeros
 				var s = date.getSeconds().toString();
 				if (s.length < 2) s = "0" + s;
 				return s;
 			},
-			"u": function (date) { // Milliseconds (note: this is different from PHP)
+			u: function (date) { // Milliseconds (note: this is different from PHP)
 				var s = date.getMilliseconds().toString();
 				if (s.length < 2) s = "00" + s;
 				else if (s.length < 3) s = "0" + s;
@@ -1254,7 +1254,9 @@
 	// Cookies
 	var Cookies = (function () {
 
-		var Cookies = {
+		var invalid_cookies = [ "expires" , "max-age" , "path" , "domain" , "secure" ];
+
+		return {
 
 			get_all: function (cookie_str) {
 				var cookie_parts = cookie_str.split(";"),
@@ -1310,14 +1312,6 @@
 			},
 
 		};
-
-
-
-		var invalid_cookies = [ "expires" , "max-age" , "path" , "domain" , "secure" ];
-
-
-
-		return Cookies;
 
 	})();
 
@@ -1635,7 +1629,7 @@
 
 
 
-		var CSS = {
+		return {
 
 			color: function (str) {
 				var c = [ 0 , 0 , 0 , 1 ],
@@ -1701,10 +1695,6 @@
 			},
 
 		};
-
-
-
-		return CSS;
 
 	})();
 
@@ -3355,6 +3345,33 @@
 						modify_fn.call(null, pages[i], n);
 					}
 				}
+			},
+
+			add_header_link: function (node) {
+				var par = document.getElementById("nb"),
+					img;
+
+				if (par === null) return false;
+
+				img = document.createElement("img");
+				img.setAttribute("alt", "");
+				img.setAttribute("src", "http://exhentai.org/img/mr.gif");
+
+				par.appendChild(img);
+				par.appendChild($.text(" "));
+				par.appendChild(node);
+
+				return true;
+			},
+			get_front_page_links: function (html) {
+				var nodes = [],
+					n;
+
+				if ((n = html.querySelector("#nb>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
+				if ((n = html.querySelector("#frontpage>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
+				if ((n = html.querySelector(".ip>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
+
+				return nodes;
 			},
 		};
 
@@ -5933,12 +5950,17 @@
 				custom_search_params: is_object_not_null,
 			};
 
+			this.uconfig = {
+				categories: 0,
+			};
+
 			// Events
 			this.change_listeners = {};
 
 			// Load
 			this.save_prefix = "eze_";
 			load_all.call(this);
+			load_uconfig.call(this);
 
 			// Sync
 			var self = this;
@@ -5955,11 +5977,30 @@
 
 
 
+		Settings.uconfig_categories = {
+			misc: [ 1 , "f_misc" ],
+			doujinshi: [ 2 , "f_doujinshi" ],
+			manga: [ 4 , "f_manga" ],
+			artistcg: [ 8 , "f_artistcg" ],
+			gamecg: [ 16 , "f_gamecg" ],
+			imageset: [ 32 , "f_imageset" ],
+			cosplay: [ 64 , "f_cosplay" ],
+			asianporn: [ 128 , "f_asianporn" ],
+			"non-h": [ 256 , "f_non-h" ],
+			western: [ 512 , "f_western" ],
+		};
+
+
+
 		var is_boolean = function (obj) {
 			return typeof(obj) == "boolean";
 		};
 		var is_object_not_null = function (obj) {
 			return typeof(obj) == "object" && obj !== null;
+		};
+
+		var string_to_int = function (str) {
+			return parseInt(str, 10) || 0;
 		};
 
 		var load_all = function () {
@@ -5985,6 +6026,35 @@
 				for (; i < list.length; ++i) {
 					list[i].call(null, settings, name, reason);
 				}
+			}
+		};
+
+		var uconfig_remap = {
+			cats: [ "categories", string_to_int ],
+		};
+
+		var load_uconfig = function () {
+			var cookie = Cookies.get_all(document.cookie),
+				vars, i, s, k;
+
+			if (!("uconfig" in cookie)) return;
+
+			// Parse
+			cookie = cookie.uconfig.split("-");
+			vars = {};
+			for (i = 0; i < cookie.length; ++i) {
+				s = cookie[i].split("_");
+				k = s[0];
+				s.splice(0, 1);
+				vars[k] = s.join("_");
+			}
+
+			// Set
+			for (k in vars) {
+				if (k in uconfig_remap) {
+					this.uconfig[uconfig_remap[k][0]] = uconfig_remap[k][1].call(null, vars[k]);
+				}
+				// else { this.uconfig[k] = vars[k]; }
 			}
 		};
 
@@ -6358,7 +6428,7 @@
 	var modify_search_url = function (url) {
 		var parts = new URLParts(url),
 			param_count = 0,
-			vars, params, i, k;
+			vars, params, i, k, k2, cats;
 
 		// External url, no change
 		if (parts.hostname !== null && parts.hostname !== window.location.hostname) return url;
@@ -6379,6 +6449,16 @@
 			++param_count;
 		}
 		if (param_count > 0) {
+			// Add default search categories (doesn't overwrite if they already exist)
+			cats = settings.uconfig.categories;
+			for (k in Settings.uconfig_categories) {
+				if ((cats & Settings.uconfig_categories[k][0]) === 0) continue;
+				k2 = Settings.uconfig_categories[k][1];
+				for (i = 0; i < vars.length && vars[i][0] != k2; ++i);
+				if (i == vars.length) vars.push([ k2 , "1" ]);
+			}
+
+			// Add search apply
 			vars.push([ "f_apply", "Apply Filter" ]);
 		}
 
@@ -6413,24 +6493,16 @@
 	};
 
 	var setup_custom_settings_link = function () {
-		var nodes = [],
-			par, n, i, url;
+		var nodes, i, url;
 
 		// Custom link
-		if ((par = document.getElementById("nb")) !== null) {
-			$("img", { alt: "", src: "http://exhentai.org/img/mr.gif" }, $.P, par);
-			par.appendChild($.text(" "));
-			$("a", null, "Ez-Settings", { href: "/uconfig.php#!eze/settings" }, $.P, par);
-
-			if ((n = par.querySelector("a[href='http://exhentai.org/']")) !== null) nodes.push(n);
-		}
+		API.add_header_link($("a", null, "Ez-Settings", { href: "/uconfig.php#!eze/settings" }));
 
 		// Modify homepage links
-		if ((n = document.querySelector("#frontpage>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
-		if ((n = document.querySelector(".ip>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
-
-		if (nodes.length > 0 && settings.get("custom_search_front_page")) {
+		if (settings.get("custom_search_front_page")) {
+			nodes = API.get_front_page_links(document.documentElement);
 			url = modify_search_url("http://exhentai.org/");
+
 			for (i = 0; i < nodes.length; ++i) {
 				nodes[i].setAttribute("href", url);
 			}
