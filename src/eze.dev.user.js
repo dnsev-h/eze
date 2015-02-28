@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze
-// @version        1.0.3.1
+// @version        1.0.3.2
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -28,7 +28,6 @@
 
 
 
-	// Classes required for fast exit
 	// Hash updating
 	var Hash = (function () {
 
@@ -1403,7 +1402,10 @@
 			};
 
 			// Values
-			this.abort = null;
+			on_load = on_load || null;
+			on_error = on_error || null;
+			on_complete = on_complete || null;
+			on_progress = on_progress || null;
 
 			// Run
 			if (options && options.use_gm && can_use_gm) {
@@ -1432,7 +1434,7 @@
 				}
 
 				// Events
-				if (on_load || on_complete) {
+				if (on_load !== null || on_complete !== null) {
 					xhr_data.onload = function (response) {
 						// Complete extra
 						complete_extra(extra, response.responseHeaders);
@@ -1442,29 +1444,29 @@
 						if (parser !== null) res_data = parser.call(null, res_data);
 
 						// Events
-						if (on_load) on_load.call(null, res_data, response.status, response.statusText, extra);
-						if (on_complete) on_complete.call(null, true, extra);
+						if (on_load !== null) on_load.call(null, res_data, response.status, response.statusText, extra);
+						if (on_complete !== null) on_complete.call(null, true, extra);
 					};
 				}
-				if (on_error || on_complete) {
+				if (on_error !== null || on_complete !== null) {
 					xhr_data.onerror = function () {
 						// Complete extra
 						complete_extra(extra, response.responseHeaders);
 
 						// Events
-						if (on_error) on_error.call(null, "error", extra);
-						if (on_complete) on_complete.call(null, false, extra);
+						if (on_error !== null) on_error.call(null, "error", extra);
+						if (on_complete !== null) on_complete.call(null, false, extra);
 					};
 					xhr_data.onabort = function () {
 						// Complete extra
 						complete_extra(extra, response.responseHeaders);
 
 						// Events
-						if (on_error) on_error.call(null, "abort", extra);
-						if (on_complete) on_complete.call(null, false, extra);
+						if (on_error !== null) on_error.call(null, "abort", extra);
+						if (on_complete !== null) on_complete.call(null, false, extra);
 					};
 				}
-				if (on_progress) {
+				if (on_progress !== null) {
 					xhr_data.onprogress = function (event) {
 						// Compute progress
 						var perc, total;
@@ -1478,7 +1480,7 @@
 						}
 
 						// Event
-						on_progress.call(null, perc, event.loaded, total, extra);
+						if (on_progress !== null) on_progress.call(null, perc, event.loaded, total, extra);
 					};
 				}
 
@@ -1486,18 +1488,6 @@
 				// Send
 				if (data !== null) xhr_data.data = data;
 				xhr = GM_xmlhttpRequest(xhr_data);
-
-				// Done
-				this.abort = function () {
-					if (xhr !== null) {
-						var x = xhr;
-						xhr = null;
-						try {
-							x.abort();
-						}
-						catch (e) {} // Shouldn't happen, but just to be safe
-					}
-				};
 			}
 			else {
 				// Create XHR
@@ -1525,39 +1515,39 @@
 				}
 
 				// Events
-				if (on_load) {
+				if (on_load !== null) {
 					xhr.addEventListener("load", function () {
 						// Complete extra
 						complete_extra(extra, xhr.getAllResponseHeaders());
 
 						// Event
 						okay = true;
-						on_load.call(null, xhr.response, xhr.status, xhr.statusText, extra);
+						if (on_load !== null) on_load.call(null, xhr.response, xhr.status, xhr.statusText, extra);
 					}, false);
 				}
-				if (on_error) {
+				if (on_error !== null) {
 					xhr.addEventListener("error", function () {
 						// Complete extra
 						complete_extra(extra, xhr.getAllResponseHeaders());
 
 						// Event
-						on_error.call(null, "error", extra);
+						if (on_error !== null) on_error.call(null, "error", extra);
 					}, false);
 					xhr.addEventListener("abort", function () {
 						// Complete extra
 						complete_extra(extra, xhr.getAllResponseHeaders());
 
 						// Event
-						on_error.call(null, "abort", extra);
+						if (on_error !== null) on_error.call(null, "abort", extra);
 					}, false);
 				}
-				if (on_complete) {
+				if (on_complete !== null) {
 					xhr.addEventListener("loadend", function () {
 						// Event
-						on_complete.call(null, okay, extra);
+						if (on_complete !== null) on_complete.call(null, okay, extra);
 					}, false);
 				}
-				if (on_progress) {
+				if (on_progress !== null) {
 					xhr.addEventListener("progress", function (event) {
 						// Compute progress
 						var perc, total;
@@ -1571,7 +1561,7 @@
 						}
 
 						// Event
-						on_progress.call(null, perc, event.loaded, total, extra);
+						if (on_progress !== null) on_progress.call(null, perc, event.loaded, total, extra);
 					}, false);
 				}
 
@@ -1582,15 +1572,26 @@
 				else {
 					xhr.send(data);
 				}
-
-				// Done
-				this.abort = function () {
-					if (xhr !== null) {
-						xhr.abort();
-						xhr = null;
-					}
-				};
 			}
+
+			// Done
+			this.abort = function () {
+				if (xhr !== null) {
+					on_load = null;
+					on_error = null;
+					on_complete = null;
+					on_progress = null;
+
+					var x = xhr;
+					xhr = null;
+					try {
+						x.abort();
+					}
+					catch (e) {
+						// This happens using GM_xhr on FF36 due to some privilege crap
+					}
+				}
+			};
 		};
 
 
@@ -3933,12 +3934,12 @@
 				}
 				if (this.request !== null) {
 					if (complete) {
+						this.request = null;
+					}
+					else {
 						this.request.abort();
 						this.request = null;
 						this.progress_reset();
-					}
-					else {
-						this.request = null;
 					}
 					return true;
 				}
