@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.3.3
+// @version     1.0.3.4
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -6224,9 +6224,9 @@
 		// Create css
 		css = CSS.format(
 			[ //{
-			".id1>.id2{overflow:visible;position:relative;}",
-			".id1:hover>.id2{z-index:1;}",
-			".id1:hover>.id2>a{text-shadow:0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}};background:{{color:bg,0.75}};display:inline-block;padding-bottom:0.5em;}",
+			".id1:not(.e-Highlighted):not(.e-Filtered)>.id2{overflow:visible;position:relative;}",
+			".id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2{z-index:1;}",
+			".id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2>a{text-shadow:0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}};background:{{color:bg,0.75}};display:inline-block;padding-bottom:0.5em;}",
 
 			".eze_gallery_page_container{}",
 			".eze_gallery_page{background:{{color:bg_light}};border:1px solid {{color:border}};text-align:left;width:99%;min-width:950px;max-width:1200px;margin:0 auto;clear:both;padding:5px;border-radius:{{border_radius}};position:relative;border-top-left-radius:0;}",
