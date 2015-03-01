@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze
-// @version        1.0.3.2
+// @version        1.0.3.3
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -1380,7 +1380,7 @@
 		};
 
 		var complete_extra = function (extra, response_headers) {
-			extra.response_headers = header_string_parse(response_headers);
+			extra.response_headers = (response_headers === null) ? {} : header_string_parse(response_headers);
 		};
 
 
@@ -1451,7 +1451,7 @@
 				if (on_error !== null || on_complete !== null) {
 					xhr_data.onerror = function () {
 						// Complete extra
-						complete_extra(extra, response.responseHeaders);
+						complete_extra(extra, null);
 
 						// Events
 						if (on_error !== null) on_error.call(null, "error", extra);
@@ -1459,7 +1459,7 @@
 					};
 					xhr_data.onabort = function () {
 						// Complete extra
-						complete_extra(extra, response.responseHeaders);
+						complete_extra(extra, null);
 
 						// Events
 						if (on_error !== null) on_error.call(null, "abort", extra);
@@ -1528,14 +1528,14 @@
 				if (on_error !== null) {
 					xhr.addEventListener("error", function () {
 						// Complete extra
-						complete_extra(extra, xhr.getAllResponseHeaders());
+						complete_extra(extra, null);
 
 						// Event
 						if (on_error !== null) on_error.call(null, "error", extra);
 					}, false);
 					xhr.addEventListener("abort", function () {
 						// Complete extra
-						complete_extra(extra, xhr.getAllResponseHeaders());
+						complete_extra(extra, null);
 
 						// Event
 						if (on_error !== null) on_error.call(null, "abort", extra);
@@ -1577,11 +1577,22 @@
 			// Done
 			this.abort = function () {
 				if (xhr !== null) {
+					// Complete extra
+					complete_extra(extra, null);
+
+					// Events
+					if (on_error !== null) {
+						on_error.call(null, "abort", extra);
+						on_error = null;
+					}
+					if (on_complete !== null) {
+						on_complete.call(null, false, extra);
+						on_complete = null;
+					}
 					on_load = null;
-					on_error = null;
-					on_complete = null;
 					on_progress = null;
 
+					// Abort
 					var x = xhr;
 					xhr = null;
 					try {
@@ -3181,7 +3192,8 @@
 					return "gallery_deleted";
 				}
 				else if ((n = html.querySelector("img[src]")) !== null) {
-					if (n.getAttribute("src") === window.location.href && window.location.pathname.substr(0, 3) !== "/t/") {
+					var p = window.location.pathname;
+					if (n.getAttribute("src") === window.location.href && p.substr(0, 3) !== "/t/" && p.substr(0, 5) !== "/img/") {
 						return "panda";
 					}
 				}
@@ -4279,6 +4291,15 @@
 			req.stop(true);
 
 			if (status == API.OK) {
+				if (/\/509\.gif$/i.test(data.image.url)) {
+					// Error
+					trigger_error.call(this, "Image viewing limit has been exceeded");
+
+					// Stop
+					this.pause();
+					return;
+				}
+				
 				// Set info
 				this.images[req.index].info = data;
 
@@ -4956,6 +4977,8 @@
 			this.loader.on("image_progress", bind(on_loader_image_progress, this));
 			this.loader.on("image_range_update", bind(on_loader_image_range_update, this));
 
+			this.page_close_warning_cb = null;
+
 			// Load settings
 			load_values.call(this);
 
@@ -5619,6 +5642,12 @@
 		};
 
 		var on_main_link_click = function (event) {
+			// Remove page close warning
+			if (this.loader.is_done() && this.page_close_warning_cb !== null) {
+				window.removeEventListener("beforeunload", this.page_close_warning_cb, false);
+				this.page_close_warning_cb = null;
+			}
+
 			// Skip
 			if (event.which != 1) return;
 
@@ -5684,6 +5713,17 @@
 
 				// Update
 				update_final_filename.call(this);
+			}
+			else if (this.loader.get_state() !== GalleryDownloader.NOT_STARTED) {
+				// Setup page close warning
+				if (this.page_close_warning_cb === null) {
+					this.page_close_warning_cb = function (event) {
+						var msg = "A download is active, or the download link has not been clicked yet.\n\nExit page?";
+						event.returnValue = msg;
+						return msg;
+					};
+					window.addEventListener("beforeunload", this.page_close_warning_cb, false);
+				}
 			}
 		};
 		var on_loader_gallery_page_get = function () {
@@ -6222,7 +6262,7 @@
 			".eze_dl_link{cursor:pointer;text-decoration:none;}",
 			".eze_dl_info_container{margin-left:-0.5em;}",
 			".eze_dl_info{display:inline-block;margin-left:0.5em;border:1px solid {{color:border}};background-color:{{color:bg}};border-bottom:none;padding:0.25em;}",
-			".eze_dl_info.eze_dl_info_error{color:#f00000;}",
+			".eze_dl_info.eze_dl_info_error{color:#f00000;text-shadow:1px 1px 0 {{color:border}};}",
 			".eze_dl_info:not(.eze_dl_info_visible){display:none;}",
 			".eze_dl_progress_bar{position:relative;width:100%;box-sizing:border-box;-moz-box-sizing:border-box;border:1px solid {{color:border}};background-color:{{color:bg_dark}};}",
 			".eze_dl_progress_bar+.eze_dl_progress_bar{border-top:none;}",
