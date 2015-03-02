@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.3.4
+// @version     1.0.4
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -1331,7 +1331,7 @@
 
 		// GM data parsers
 		var response_parsers = {
-			"json": function (text) {
+			json: function (text) {
 				try {
 					return JSON.parse(text);
 				}
@@ -1339,7 +1339,7 @@
 					return null;
 				}
 			},
-			"document": function (text) {
+			document: function (text) {
 				try {
 					var parser = new DOMParser(),
 						doc = parser.parseFromString(text, "text/html");
@@ -1350,11 +1350,12 @@
 					return null;
 				}
 			},
-			"arraybuffer": function (text) {
+			arraybuffer: function (text) {
 				var array = new Uint8Array(new ArrayBuffer(text.length)),
-					i;
+					text_len = text.length,
+					i = 0;
 
-				for (i = 0; i < text.length; ++i) {
+				for (; i < text_len; ++i) {
 					array[i] = text.charCodeAt(i);
 				}
 
@@ -1932,6 +1933,55 @@
 		}
 	};
 
+	// setTimeout with a progress callback
+	var set_timeout = (function () {
+
+		var perf = window.performance,
+			now = performance.now || performance.mozNow || performance.msNow || performance.oNow || performance.webkitNow,
+			time_now = (perf && now) ?
+				function () {
+					return now.call(perf);
+				} :
+				function () {
+					return new Date().getTime();
+				};
+
+		return function (callback, time, progress, progress_time) {
+			var start = time_now(),
+				timer = setTimeout(function () {
+					if (progress !== null) {
+						clearInterval(interval);
+						progress.call(null, 1.0);
+					}
+					callback.call(null);
+					timer = null;
+				}, time),
+				interval = 0;
+
+			if (progress) {
+				interval = setInterval(function () {
+					var diff = time_now() - start;
+					if (diff > time) diff = time;
+					progress.call(null, diff / time, diff);
+				}, progress_time);
+			}
+			else {
+				progress = null;
+			}
+
+			return function () {
+				if (timer !== null) {
+					clearTimeout(timer);
+					if (progress !== null) clearInterval(interval);
+					timer = null;
+					return true;
+				}
+				return false;
+			};
+		};
+
+	})();
+
 	// Url parsing
 	var URLParts = (function () {
 
@@ -2195,12 +2245,19 @@
 					on_progress
 				);
 			},
-			request_document: function (url, on_load, on_error, on_complete, on_progress) {
+			request_document: function (url, on_load, on_error, on_complete, on_progress, params) {
+				var use_gm = false;
+
+				if (params) {
+					if ("use_gm" in params) use_gm = !!params.use_gm;
+				}
+
 				return new Ajax(
 					"GET",
 					url,
 					null,
 					{
+						use_gm: use_gm,
 						response_type: "document"
 					},
 					on_load,
@@ -3368,7 +3425,7 @@
 
 				img = document.createElement("img");
 				img.setAttribute("alt", "");
-				img.setAttribute("src", "http://exhentai.org/img/mr.gif");
+				img.setAttribute("src", api_site == "exhentai" ? "http://exhentai.org/img/mr.gif" : "http://ehgt.org/g/mr.gif");
 
 				par.appendChild(img);
 				par.appendChild($.text(" "));
@@ -3385,6 +3442,64 @@
 				if ((n = html.querySelector(".ip>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
 
 				return nodes;
+			},
+
+			get_image_limits_from_html: function (html) {
+				var nodes = html.querySelectorAll(".stuffbox>h2"),
+					obj = null,
+					i, n;
+
+				for (i = 0; i < nodes.length; ++i) {
+					n = nodes[i];
+					if (/^\s*Image\s+Limits\s*$/i.test(n.textContent)) {
+						while ((n = n.nextSibling) !== null) {
+							if (n.classList) {
+								if (n.classList.contains("homebox") && (nodes = n.querySelectorAll("p>strong")).length >= 3) {
+									// Found
+									obj = {
+										current: parseInt(nodes[0].textContent.trim(), 10) || 0,
+										limit: parseInt(nodes[1].textContent.trim(), 10) || 0,
+										increase: parseInt(nodes[2].textContent.trim(), 10) || 0,
+									};
+								}
+								break;
+							}
+						}
+						break;
+					}
+				}
+
+				// Not found
+				return obj;
+			},
+			get_image_limits: function (callback) {
+				return API.request_document("http://g.e-hentai.org/home.php",
+					// On load
+					function (response, status, status_text) {
+						var data = API.get_image_limits_from_html(response);
+
+						if (status == 200) {
+							if (data !== null) {
+								callback.call(null, API.OK, data, response);
+							}
+							else {
+								callback.call(null, API.ERROR_PARSING, response);
+							}
+						}
+						else {
+							callback.call(null, API.ERROR_REQUEST_STATUS, [ response , status, status_text ]);
+						}
+					},
+					// On error
+					function (event) {
+						callback.call(null, API.ERROR_REQUEST, event);
+					},
+					null,
+					null,
+					{
+						use_gm: true,
+					}
+				);
 			},
 		};
 
@@ -3872,6 +3987,7 @@
 				image_page_progress: [],
 				image_get: [],
 				image_progress: [],
+				image_timeout_progress: [],
 				image_range_update: [],
 			};
 
@@ -3880,9 +3996,9 @@
 			this.active = false;
 			this.state = GalleryDownloader.NOT_STARTED;
 
-			this.request_gallery = new Requester(this, request_gallery_page, request_gallery_page_done, 1.0, 3.0, 1.0);
-			this.request_image_page = new Requester(this, request_image_page, request_image_page_done, 1.0, 3.0, 1.0);
-			this.request_image = new Requester(this, request_image, request_image_done, 1.0, 3.0, 1.0);
+			this.request_gallery = new Requester(this, request_gallery_page, request_gallery_page_done, 1.0, 3.0, 1.0, "gallery_page_get", null);
+			this.request_image_page = new Requester(this, request_image_page, request_image_page_done, 1.0, 3.0, 1.0, "image_page_get", null);
+			this.request_image = new Requester(this, request_image, request_image_done, 1.0, 3.0, 1.0, "image_get", "image_timeout_progress");
 
 			this.request_timeout = 30.0;
 			this.request_image.retry_max = 2;
@@ -3914,7 +4030,7 @@
 
 
 
-		var Requester = function (downloader, request_function, completion_check, delay_okay, delay_error, delay_abort) {
+		var Requester = function (downloader, request_function, completion_check, delay_okay, delay_error, delay_abort, event_name_next, event_name_progress) {
 			this.downloader = downloader;
 
 			this.index = 0;
@@ -3924,14 +4040,18 @@
 			this.retry_index = 0;
 			this.retry_max = 0;
 
-			this.delays = [ delay_okay , delay_error , delay_abort ];
+			this.delays = [ delay_okay * 1000 , delay_error * 1000 , delay_abort * 1000 ];
 
 			this.request = null;
 			this.timeout_timer = null;
 			this.delay_timer = null;
+			this.completed = false;
 
 			this.request_function = request_function;
 			this.completion_check = completion_check;
+
+			this.event_name_next = event_name_next;
+			this.event_name_progress = event_name_progress;
 		};
 		Requester.prototype = {
 			constructor: Requester,
@@ -3939,7 +4059,7 @@
 			stop: function (complete) {
 				// Returns true if a request was active, false otherwise
 				if (this.timeout_timer !== null) {
-					clearTimeout(this.timeout_timer);
+					this.timeout_timer();
 					this.timeout_timer = null;
 				}
 				if (this.request !== null) {
@@ -3956,35 +4076,50 @@
 
 				return false;
 			},
-			resume: function () {
+			resume: function (reset) {
 				// Don't continue if a delay timeout is active
-				if (this.request === null && this.delay_timer === null && !this.completion_check.call(this.downloader, this)) {
-					this.retry_index = 0;
+				if (this.downloader.active && this.request === null && this.delay_timer === null && !this.completed) {
+					if (reset) this.retry_index = 0;
 					this.progress_reset();
 					this.request_function.call(this.downloader, this);
 					if (this.request !== null) {
-						this.timeout_timer = setTimeout(bind(this.on_request_timeout, this), this.downloader.request_timeout * 1000);
+						var on_progress = (this.event_name_progress === null) ? null : bind(this.on_timeout_progress, this);
+
+						this.timeout_timer = set_timeout(bind(this.on_request_timeout, this), this.downloader.request_timeout * 1000, on_progress, 250);
 					}
 				}
 			},
 
-			next: function (event_name) {
+			next: function () {
 				// Next
 				var i = this.index;
 				++this.index;
-				this.retry_index = 0;
 
-				// Done
-				trigger.call(this.downloader, event_name, {
+				// Event
+				trigger.call(this.downloader, this.event_name_next, {
 					downloader: this.downloader,
 					index: i,
 				});
 
-				// Delay next
-				this.delay(GalleryDownloader.DELAY_OKAY);
+				// Check if complete
+				if (!(this.completed = this.completion_check.call(this.downloader, this))) {
+					// Delay next
+					this.delay(GalleryDownloader.DELAY_OKAY, true);
+				}
 			},
-			delay: function (mode) {
-				this.delay_timer = setTimeout(this.on_delay_timeout.bind(this), (mode >= 0) ? this.delays[mode] * 1000 : 0.0);
+			delay: function (mode, reset) {
+				var self = this,
+					cb = function () {
+						self.delay_timer = null;
+						self.resume(reset);
+					};
+
+				if (mode === GalleryDownloader.DELAY_NONE) {
+					cb.call(null);
+				}
+				else {
+					this.delay_timer = setTimeout(cb, this.delays[mode]);
+				}
 			},
 			retry: function () {
 				// Increase retry
@@ -3995,7 +4130,7 @@
 				else {
 					// Delay for next
 					++this.retry_index;
-					this.delay(GalleryDownloader.DELAY_ERROR);
+					this.delay(GalleryDownloader.DELAY_ERROR, false);
 				}
 			},
 
@@ -4005,17 +4140,6 @@
 				this.progress_total = 0;
 			},
 
-			on_delay_timeout: function () {
-				// Stop timer
-				this.delay_timer = null;
-				if (this.downloader.active && this.request === null && !this.completion_check.call(this.downloader, this)) {
-					this.progress_reset();
-					this.request_function.call(this.downloader, this);
-					if (this.request !== null) {
-						this.timeout_timer = setTimeout(bind(this.on_request_timeout, this), this.downloader.request_timeout * 1000);
-					}
-				}
-			},
 			on_request_timeout: function () {
 				// Stop timer
 				this.timeout_timer = null;
@@ -4028,6 +4152,14 @@
 
 				// Retry
 				this.retry();
+			},
+			on_timeout_progress: function (percent, time) {
+				// Event
+				trigger.call(this.downloader, this.event_name_progress, {
+					downloader: this.downloader,
+					percent: percent,
+					time: time / 1000.0,
+				});
 			},
 		};
 
@@ -4078,11 +4210,11 @@
 				state_change.call(this, GalleryDownloader.REQUESTING_GALLERY_PAGES);
 			}
 			else if (this.state == GalleryDownloader.REQUESTING_GALLERY_PAGES) {
-				this.request_gallery.resume();
+				this.request_gallery.resume(true);
 			}
 			else if (this.state == GalleryDownloader.REQUESTING_IMAGES) {
-				this.request_image_page.resume();
-				this.request_image.resume();
+				this.request_image_page.resume(true);
+				this.request_image.resume(true);
 			}
 		};
 
@@ -4221,7 +4353,7 @@
 				this.thumb_loader.add_page_from_html(response, req.index);
 
 				// Next
-				req.next("gallery_page_get");
+				req.next();
 			}
 			else {
 				// Error
@@ -4306,10 +4438,10 @@
 				this.image_total_bytes[GalleryDownloader.IMAGE_RESIZED] += data.image.size_approx;
 
 				// Next
-				req.next("image_page_get");
+				req.next();
 
 				// Continue the image requester
-				this.request_image.resume();
+				this.request_image.resume(true);
 			}
 			else {
 				// Error
@@ -4454,7 +4586,7 @@
 			image_data.byte_data = response;
 
 			// Next
-			req.next("image_get");
+			req.next();
 		};
 		var on_request_image_error = function (req, event) {
 			req.stop(true);
@@ -4475,7 +4607,7 @@
 				this.images[req.index].info_fallback = data;
 
 				// Delay next
-				req.delay(GalleryDownloader.DELAY_OKAY);
+				req.delay(GalleryDownloader.DELAY_OKAY, true);
 			}
 			else {
 				// Error
@@ -4520,13 +4652,13 @@
 
 				// Stop state
 				if (this.request_gallery.stop(false)) {
-					this.request_gallery.delay(GalleryDownloader.DELAY_ABORT);
+					this.request_gallery.delay(GalleryDownloader.DELAY_ABORT, true);
 				}
 				if (this.request_image_page.stop(false)) {
-					this.request_image_page.delay(GalleryDownloader.DELAY_ABORT);
+					this.request_image_page.delay(GalleryDownloader.DELAY_ABORT, true);
 				}
 				if (this.request_image.stop(false)) {
-					this.request_image.delay(GalleryDownloader.DELAY_ABORT);
+					this.request_image.delay(GalleryDownloader.DELAY_ABORT, true);
 				}
 
 				// Inactive
@@ -4605,6 +4737,9 @@
 			},
 			get_current_image_bytes_loaded: function () {
 				return this.request_image.request === null ? 0 : this.request_image.progress_loaded;
+			},
+			get_current_image_bytes_total: function () {
+				return this.request_image.request === null ? 0 : this.request_image.progress_total;
 			},
 
 			set_image_ranges: function (text) {
@@ -4777,6 +4912,10 @@
 			this.node_progress_images_text = null;
 			this.node_progress_image_size = null;
 			this.node_progress_image_size_text = null;
+			this.node_progress_image_current = null;
+			this.node_progress_image_current_text = null;
+			this.node_progress_timeout = null;
+			this.node_progress_timeout_indicator = null;
 
 			this.node_zip_info_json_name = null;
 
@@ -4823,6 +4962,15 @@
 					$("div", "eze_dl_progress_bar_text", [
 						$.text("Image byte progress: "),
 						this.node_progress_image_size_text = $.text(),
+					]),
+				]),
+				$("div", "eze_dl_progress_bar eze_dl_progress_bar_timeout", [
+					this.node_progress_timeout = $("div", "eze_dl_progress_bar_bg_light"),
+					this.node_progress_image_current = $("div", "eze_dl_progress_bar_bg"),
+					this.node_progress_timeout_indicator = $("div", "eze_dl_progress_bar_indicator eze_dl_progress_bar_indicator_hidden"),
+					$("div", "eze_dl_progress_bar_text", [
+						$.text("Current image progress: "),
+						this.node_progress_image_current_text = $.text(),
 					]),
 				]),
 				$("div", "eze_dl_title eze_dl_title_pad_above", "Download settings"),
@@ -4973,6 +5121,7 @@
 			this.loader.on("image_page_get", bind(on_loader_image_page_get, this));
 			this.loader.on("image_get", bind(on_loader_image_get, this));
 			this.loader.on("image_progress", bind(on_loader_image_progress, this));
+			this.loader.on("image_timeout_progress", bind(on_loader_image_timeout_progress, this));
 			this.loader.on("image_range_update", bind(on_loader_image_range_update, this));
 
 			this.page_close_warning_cb = null;
@@ -4984,6 +5133,7 @@
 			update_main_link_text.call(this);
 			update_info_status_text.call(this);
 			update_progress_bars.call(this);
+			update_timeout_progress_bar.call(this, 0, 0);
 
 			// Show
 			container.appendChild(n0);
@@ -5254,24 +5404,40 @@
 			var state = this.loader.get_state(),
 				bytes_p = 0.0,
 				bytes_t = "none",
-				num, dem;
+				bytes_p2 = 0.0,
+				bytes_t2 = "none",
+				num, den;
 
 
 			// Progress calculations
 			if (state != GalleryDownloader.NOT_STARTED) {
 				if (state == GalleryDownloader.REQUESTING_IMAGES) {
 					// Image progress
-					num = this.loader.get_image_total_bytes_loaded() + this.loader.get_current_image_bytes_loaded();
-					dem = Math.max(num, this.loader.get_image_total_bytes());
+					num = this.loader.get_current_image_bytes_loaded();
+					den = this.loader.get_current_image_bytes_total();
+					if (den === 0) {
+						bytes_p2 = 0;
+						bytes_t2 = "0%";
+					}
+					else {
+						bytes_p2 = num / den;
+						bytes_t2 = "" + bytes_to_labeled_string(num) + " / " + bytes_to_labeled_string(den);
+						bytes_t2 += " (" + fraction_to_percent(bytes_p2, 0) + ")";
+					}
 
-					bytes_p = num / dem;
+					// Total image progress
+					num += this.loader.get_image_total_bytes_loaded();
+					den = Math.max(num, this.loader.get_image_total_bytes());
+					bytes_p = num / den;
 
-					bytes_t = "" + bytes_to_labeled_string(num) + " / " + bytes_to_labeled_string(dem);
+					bytes_t = "" + bytes_to_labeled_string(num) + " / " + bytes_to_labeled_string(den);
 					bytes_t += " (" + fraction_to_percent(bytes_p, 0) + ")";
 				}
 				else if (state == GalleryDownloader.COMPLETED) {
 					bytes_p = 1.0;
 					bytes_t = "done";
+					bytes_p2 = 1.0;
+					bytes_t2 = "done";
 				}
 			}
 
@@ -5279,6 +5445,21 @@
 			// Node updates
 			this.node_progress_image_size.style.width = fraction_to_percent(bytes_p, 2);
 			this.node_progress_image_size_text.nodeValue = bytes_t;
+
+			this.node_progress_image_current.style.width = fraction_to_percent(bytes_p2, 2);
+			this.node_progress_image_current_text.nodeValue = bytes_t2;
+		};
+		var update_timeout_progress_bar = function (percent) {
+			var p = fraction_to_percent(percent, 2);
+
+			this.node_progress_timeout.style.width = p;
+			this.node_progress_timeout_indicator.style.width = p;
+			if (percent <= 0) {
+				this.node_progress_timeout_indicator.classList.add("eze_dl_progress_bar_indicator_hidden");
+			}
+			else {
+				this.node_progress_timeout_indicator.classList.remove("eze_dl_progress_bar_indicator_hidden");
+			}
 		};
 		var update_image_counters = function () {
 			// vars
@@ -5688,7 +5869,7 @@
 			else {
 				// Progress bars
 				update_progress_bars.call(this);
-				update_byte_progress_bar.call(this);
+				update_timeout_progress_bar.call(this, 0, 0);
 			}
 		};
 		var on_loader_state_change = function () {
@@ -5742,6 +5923,7 @@
 			// Update
 			update_progress_bars.call(this);
 			update_image_counters.call(this);
+			update_timeout_progress_bar.call(this, 0, 0);
 
 			// Hide error
 			this.node_info_error.classList.remove("eze_dl_info_visible");
@@ -5749,6 +5931,9 @@
 		var on_loader_image_range_update = function () {
 			// Update node
 			this.node_file_ranges.value = this.loader.get_image_ranges();
+		};
+		var on_loader_image_timeout_progress = function (event) {
+			update_timeout_progress_bar.call(this, event.percent, event.time);
 		};
 
 
@@ -6199,10 +6384,12 @@
 			vars.text = CSS.color("#F1F1F1");
 			vars.text_light = CSS.color("#B8B8B8");
 			vars.text_shadow = CSS.color("#080808");
-			vars.dl_bar_bg1 = CSS.color("#0088ff");
-			vars.dl_bar_bg2 = CSS.color("#00a020");
-			vars.dl_bar_bg3 = CSS.color("#a07000");
-			vars.dl_bar_bg4 = CSS.color("#c00000");
+			vars.dl_bar_bg1 = CSS.color("#c00000");
+			vars.dl_bar_bg2 = CSS.color("#a07000");
+			vars.dl_bar_bg3 = CSS.color("#00a020");
+			vars.dl_bar_bg4 = CSS.color("#0060ff");
+			vars.dl_bar_bg5 = CSS.color("#8020ff");
+			vars.dl_bar_bg5_light = CSS.color("#5f1080");
 		}
 		else {
 			vars.gallery_item_hl = CSS.color("#f8f8f8");
@@ -6215,10 +6402,12 @@
 			vars.text = CSS.color("#5C0D11");
 			vars.text_light = CSS.color("#9F8687");
 			vars.text_shadow = CSS.color("#f8f8f8");
-			vars.dl_bar_bg1 = CSS.color("#88ccff");
-			vars.dl_bar_bg2 = CSS.color("#88ffaa");
-			vars.dl_bar_bg3 = CSS.color("#ffc0aa");
-			vars.dl_bar_bg4 = CSS.color("#ffaaaa");
+			vars.dl_bar_bg1 = CSS.color("#ffaaaa");
+			vars.dl_bar_bg2 = CSS.color("#ffc0aa");
+			vars.dl_bar_bg3 = CSS.color("#88ffaa");
+			vars.dl_bar_bg4 = CSS.color("#88ccff");
+			vars.dl_bar_bg5 = CSS.color("#d088ff");
+			vars.dl_bar_bg5_light = CSS.color("#ffc0ff");
 		}
 
 		// Create css
@@ -6264,10 +6453,14 @@
 			".eze_dl_info:not(.eze_dl_info_visible){display:none;}",
 			".eze_dl_progress_bar{position:relative;width:100%;box-sizing:border-box;-moz-box-sizing:border-box;border:1px solid {{color:border}};background-color:{{color:bg_dark}};}",
 			".eze_dl_progress_bar+.eze_dl_progress_bar{border-top:none;}",
-			".eze_dl_progress_bar_bg{position:absolute;left:0;top:0;bottom:0;background-color:{{color:dl_bar_bg1}};}",
+			".eze_dl_progress_bar_bg,.eze_dl_progress_bar_bg_light{position:absolute;left:0;top:0;bottom:0;background-color:{{color:dl_bar_bg1}};}",
+			".eze_dl_progress_bar_indicator{position:absolute;left:0;top:0;bottom:0;border-right:1px solid {{color:border}};}",
+			".eze_dl_progress_bar_indicator.eze_dl_progress_bar_indicator_hidden{display:none;}",
 			".eze_dl_progress_bar.eze_dl_progress_bar_image_pages>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg2}};}",
 			".eze_dl_progress_bar.eze_dl_progress_bar_images>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg3}};}",
 			".eze_dl_progress_bar.eze_dl_progress_bar_image_size>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg4}};}",
+			".eze_dl_progress_bar.eze_dl_progress_bar_timeout>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg5}};}",
+			".eze_dl_progress_bar.eze_dl_progress_bar_timeout>.eze_dl_progress_bar_bg_light{background-color:{{color:dl_bar_bg5_light}};}",
 			".eze_dl_progress_bar_text{position:relative;height:1.25em;padding:0.25em;line-height:1.25em;color:{{color:text}};text-shadow:1px 1px 0 {{color:text_shadow}};}",
 			".eze_dl_setting{display:table;width:100%;padding:0.5em;box-sizing:border-box;-moz-box-sizing:border-box;}",
 			".eze_dl_setting:nth-of-type(2n){background-color:{{color:bg}};}",
