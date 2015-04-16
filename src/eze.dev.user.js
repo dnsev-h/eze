@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze
-// @version        1.0.4
+// @version        1.0.5
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -28,6 +28,21 @@
 
 /*<debug>*/
 	// Debugging
+	var stack_trace = function () {
+		var s = "";
+		try {
+			null.null = null;
+		}
+		catch (e) {
+			s = e.stack;
+		}
+		console.log(e);
+	};
+
+	var LOGJ = function (obj) {
+		console.log(JSON.stringify(obj, null, 2));
+	};
+
 	(function () {
 
 		var log_exception = function (e) {
@@ -1734,7 +1749,7 @@
 			},
 
 			computed: function (node, style) {
-				return getComputedStyle(node)[style];
+				return window.getComputedStyle(node).getPropertyValue(style);
 			},
 
 		};
@@ -1954,12 +1969,28 @@
 				push.apply(full_args, arguments);
 
 				return callback.apply(self, full_args);
-			};
+			}._w();
 		}
 		else {
 			return function () {
 				return callback.apply(self, arguments);
-			};
+			}._w();
+		}
+	};
+
+	// Event listeners
+	var add_event_listener = function (list, node, event, callback, capture) {
+		node.addEventListener(event, callback, capture);
+		list.push([node, event, callback, capture]);
+	};
+	var remove_event_listeners = function (list) {
+		var list_len = list.length,
+			i = 0,
+			li;
+
+		for (; i < list_len; ++i) {
+			li = list[i];
+			li[0].removeEventListener(li[1], li[2], li[3]);
 		}
 	};
 
@@ -2096,6 +2127,452 @@
 
 	})();
 
+	// Dynamic content viewing
+	var ContentViewer = (function () {
+
+		var create_node = function (cls) {
+			var n = document.createElement("div");
+			n.className = cls;
+			return n;
+		};
+
+		var stop_transition = function (node) {
+			node.style.transition = "none";
+			window.getComputedStyle(node).getPropertyValue("transform");
+			node.style.transition = "";
+		};
+
+		var add_transitionend_listener = function (node, cb) {
+			node.addEventListener("transitionend", cb, false);
+			node.addEventListener("webkitTransitionEnd", cb, false);
+			node.addEventListener("oTransitionEnd", cb, false);
+			node.addEventListener("otransitionend", cb, false);
+		};
+
+		var ContentViewer = function () {
+			this.container = create_node("eze_cv_container");
+			this.offset_size = create_node("eze_cv_offset_size");
+			this.offset = create_node("eze_cv_offset");
+			this.content_container = create_node("eze_cv_content_container");
+			this.content = create_node("eze_cv_content");
+
+			this.content_container.appendChild(this.content);
+			this.offset.appendChild(this.content_container);
+			this.offset_size.appendChild(this.offset);
+			this.container.appendChild(this.offset_size);
+
+			this.scale = 1.0;
+			this.position = [ 0.5 , 0.5 ];
+			this.scroll_size = [ 0 , 0 ];
+			this.container_size = null;
+			this.content_size = null;
+			this.transition_scale = false;
+			this.transition_position = false;
+			this.transitioning_scale = false;
+			this.transitioning_position = false;
+
+			var self = this;
+			add_transitionend_listener(this.content, function () {
+				self.transitioning_scale = false;
+			});
+			add_transitionend_listener(this.offset, function () {
+				self.transitioning_position = false;
+			});
+		};
+
+		ContentViewer.prototype = {
+			constructor: ContentViewer,
+
+			set_position: function (x, y) {
+				if (x < 0.0) x = 0.0;
+				else if (x > 1.0) x = 1.0;
+
+				if (y < 0.0) y = 0.0;
+				else if (y > 1.0) y = 1.0;
+
+				this.position[0] = x;
+				this.position[1] = y;
+
+				x = (x * -100) + 50;
+				y = (y * -100) + 50;
+
+				var s = "translate(" + x.toFixed(2) + "%," + y.toFixed(2) + "%)";
+				if (this.offset.style.transform !== s) {
+					this.transitioning_position = this.transition_position;
+					this.offset.style.transform = s;
+				}
+			},
+			set_position_index: function (p, index) {
+				if (p < 0.0) p = 0.0;
+				else if (p > 1.0) p = 1.0;
+
+				this.position[index] = p;
+
+				var x = (this.position[0] * -100) + 50,
+					y = (this.position[1] * -100) + 50,
+					s = "translate(" + x.toFixed(2) + "%," + y.toFixed(2) + "%)";
+
+				if (this.offset.style.transform !== s) {
+					this.transitioning_position = this.transition_position;
+					this.offset.style.transform = s;
+				}
+			},
+			get_position: function () {
+				return this.position;
+			},
+
+			set_scale: function (scale) {
+				this.scale = scale;
+
+				var s = "scale(" + this.scale.toFixed(2) + "," + this.scale.toFixed(2) + ")";
+				if (this.content.style.transform !== s) {
+					this.transitioning_scale = this.transition_scale;
+					this.content.style.transform = s;
+				}
+				this.update_size();
+			},
+			get_scale: function () {
+				return this.scale;
+			},
+
+			set_transition_scale: function (enabled) {
+				this.transition_scale = enabled;
+
+				var clist = this.container.classList,
+					cls = "eze_cv_container_transition_scale";
+
+				if (enabled !== clist.contains(cls)) {
+					clist.toggle(cls);
+				}
+			},
+			get_transition_scale: function () {
+				return this.transition_scale;
+			},
+			set_transition_position: function (enabled) {
+				this.transition_position = enabled;
+
+				var clist = this.container.classList,
+					cls = "eze_cv_container_transition_position";
+
+				if (enabled !== clist.contains(cls)) {
+					clist.toggle(cls);
+				}
+			},
+			get_transition_position: function () {
+				return this.transition_position;
+			},
+
+			stop_transitioning_position: function () {
+				this.transitioning_position = false;
+
+				stop_transition(this.offset);
+			},
+			stop_transitioning_scale: function () {
+				this.transitioning_scale = false;
+
+				stop_transition(this.content);
+
+				this.offset_size.style.transition = "none";
+				window.getComputedStyle(this.offset_size).getPropertyValue("width");
+				window.getComputedStyle(this.offset_size).getPropertyValue("height");
+				this.offset_size.style.transition = "";
+			},
+
+			is_transitioning_scale: function () {
+				return this.transitioning_scale;
+			},
+			is_transitioning_position: function () {
+				return this.transitioning_position;
+			},
+
+			get_container_size: function () {
+				return this.container_size;
+			},
+			get_content_size: function () {
+				return this.content_size;
+			},
+			get_scroll_size: function () {
+				return this.scroll_size;
+			},
+
+			update_size: function () {
+				this.container_size = this.container.getBoundingClientRect();
+				this.content_size = this.content_container.getBoundingClientRect();
+
+				var w = (this.content_size.width * this.scale) - this.container_size.width,
+					h = (this.content_size.height * this.scale) - this.container_size.height;
+
+				if (w < 0) w = 0;
+				if (h < 0) h = 0;
+
+				this.scroll_size[0] = w;
+				this.scroll_size[1] = h;
+
+				this.offset_size.style.width = w.toFixed(2) + "px";
+				this.offset_size.style.height = h.toFixed(2) + "px";
+			},
+		};
+
+		return ContentViewer;
+
+	})();
+
+	// Priority array indexer
+	var PriorityIndex = (function () {
+
+		var PriorityIndex = function (validate_fn) {
+			this.index = 0;
+			this.center = 0;
+			this.priority = PriorityIndex.BALANCED | PriorityIndex.AFTER;
+			this.absolute_range = [ 0 , 0 ];
+			this.relative_range = [ 0 , 0 ];
+			this.validate_fn = validate_fn;
+		};
+
+		PriorityIndex.BALANCED = 0x1; // Alternate between before and after
+		PriorityIndex.AFTER = 0x2; // Priority to pages after the current
+		PriorityIndex.BEFORE = 0x4; // Priority to pages before the current
+
+		PriorityIndex.FOUND = 0;
+		PriorityIndex.OUT_OF_RANGE = 1;
+		PriorityIndex.OUT_OF_RANGE_ABS = 2;
+
+		PriorityIndex.prototype = {
+			constructor: PriorityIndex,
+			set_range: function (min, max) {
+				this.absolute_range[0] = min;
+				this.absolute_range[1] = max;
+			},
+			set_range_relative: function (min, max) {
+				this.relative_range[0] = min;
+				this.relative_range[1] = max;
+			},
+			set_index: function (index) {
+				this.index = index;
+			},
+			set_center: function (center) {
+				this.center = center;
+			},
+			set_priority: function (priority) {
+				this.priority = priority;
+			},
+			update: function (ignore_relative) {
+				var dir_after = (this.priority & (PriorityIndex.BEFORE | PriorityIndex.AFTER)) !== PriorityIndex.BEFORE,
+					center = this.center,
+					abs_range = this.absolute_range,
+					rel_range = ignore_relative ? [ -1 , -1 ] : this.relative_range,
+					looped_once = false,
+					ret = PriorityIndex.OUT_OF_RANGE;
+
+				// Initial range check
+				if (this.index < abs_range[0] || this.index >= abs_range[1]) {
+					return PriorityIndex.OUT_OF_RANGE_ABS;
+				}
+
+				// Alternate
+				if ((this.priority & PriorityIndex.BALANCED) !== 0) {
+					var diffs = dir_after ? [ 1 , 0 , 1 ] : [ -1 , -1 , 0 ],
+						dist = this.index - center,
+						dist_pre;
+
+					// Alternating
+					while (true) {
+						this.index = center + dist;
+
+						if (dist === 0) {
+							if (this.validate_fn.call(null, this.index)) return PriorityIndex.FOUND;
+							dist += diffs[0];
+						}
+						else if (dist > 0) {
+							dist_pre = dist;
+							dist = diffs[1] - dist;
+							if (this.index >= abs_range[1] || (rel_range[1] >= 0 && dist_pre > rel_range[1])) break;
+							if (this.validate_fn.call(null, this.index)) return PriorityIndex.FOUND;
+						}
+						else {
+							dist_pre = dist;
+							dist = diffs[2] - dist;
+							if (this.index < abs_range[0] || (rel_range[0] >= 0 && -dist_pre > rel_range[0])) break;
+							if (this.validate_fn.call(null, this.index)) return PriorityIndex.FOUND;
+						}
+					}
+
+					// Continue to single direction
+					this.index = center + dist;
+					dir_after = (this.index > center);
+					looped_once = true;
+				}
+
+				// Single direction
+				while (true) {
+					if (dir_after) {
+						// After
+						while (true) {
+							if (this.index >= abs_range[1]) {
+								ret = PriorityIndex.OUT_OF_RANGE_ABS;
+								break;
+							}
+							else if (rel_range[1] >= 0 && this.index - center > rel_range[1]) {
+								ret = PriorityIndex.OUT_OF_RANGE;
+								break;
+							}
+							else if (this.validate_fn.call(null, this.index)) {
+								return PriorityIndex.FOUND;
+							}
+							++this.index;
+						}
+					}
+					else {
+						// Before
+						while (true) {
+							if (this.index < abs_range[0]) {
+								ret = PriorityIndex.OUT_OF_RANGE_ABS;
+								break;
+							}
+							else if (rel_range[0] >= 0 && center - this.index > rel_range[0]) {
+								ret = PriorityIndex.OUT_OF_RANGE;
+								break;
+							}
+							else if (this.validate_fn.call(null, this.index)) {
+								return PriorityIndex.FOUND;
+							}
+							--this.index;
+						}
+					}
+
+					// Terminate
+					if (looped_once) break;
+					looped_once = true;
+					dir_after = !dir_after;
+					this.index = center + (dir_after ? 1 : -1);
+				}
+
+				// Out of range
+				return ret;
+			},
+		};
+
+		return PriorityIndex;
+
+	})();
+
+	// Generic event functions
+	var Events = (function () {
+
+		return {
+			on: function (valid_events) {
+				if (valid_events) {
+					// Lite mode
+					return function (event, callback) {
+						if (this.events === null) this.events = {};
+
+						if (event in this.events) {
+							this.events[event].push(callback);
+						}
+						else {
+							if (!(event in valid_events)) return false;
+							this.events[event] = [ callback ];
+						}
+
+						return true;
+					};
+				}
+				else {
+					// Normal mode
+					return function (event, callback) {
+						if (this.events !== null && event in this.events) {
+							this.events[event].push(callback);
+							return true;
+						}
+
+						return false;
+					};
+				}
+			},
+			off: function () {
+				return function (event, callback) {
+					if (this.events !== null && event in this.events) {
+						for (var i = 0, list = this.events[event]; i < list.length; ++i) {
+							if (list[i] === callback) {
+								list.splice(i, 1);
+								return true;
+							}
+						}
+					}
+					return false;
+				};
+			},
+			trigger: function () {
+				return function (event, data) {
+					if (this.events !== null && event in this.events) {
+						for (var i = 0, list = this.events[event]; i < list.length; ++i) {
+							list[i].call(null, data, event);
+						}
+					}
+				};
+			},
+		};
+
+	})();
+
+	// Keyboard key names
+	var Keys = (function () {
+
+		var Keys = {
+			"BACKSPACE": 8,
+			"TAB": 9,
+			"ENTER": 13,
+			"SHIFT": 16,
+			"CTRL": 17,
+			"ALT": 18,
+			"PAUSE": 19,
+			"CAPS LOCK": 20,
+			"ESC": 27,
+			"SPACE": 32,
+			"PAGE UP": 33,
+			"PAGE DOWN": 34,
+			"END": 35,
+			"HOME": 36,
+			"LEFT": 37,
+			"UP": 38,
+			"RIGHT": 39,
+			"DOWN": 40,
+			"INSERT": 45,
+			"DELETE": 46,
+			",": 188,
+			".": 190,
+			"/": 191,
+			"`": 192,
+			"[": 219,
+			"\\": 220,
+			"]": 221,
+			"'": 222,
+			"NUMPAD 0": 96,
+			"NUMPAD 1": 97,
+			"NUMPAD 2": 98,
+			"NUMPAD 3": 99,
+			"NUMPAD 4": 100,
+			"NUMPAD 5": 101,
+			"NUMPAD 6": 102,
+			"NUMPAD 7": 103,
+			"NUMPAD 8": 104,
+			"NUMPAD 9": 105,
+			"NUMPAD *": 106,
+			"NUMPAD +": 107,
+			"NUMPAD -": 109,
+			"NUMPAD .": 110,
+			"NUMPAD /": 111,
+		};
+
+		var i, i_max;
+		for (i = "A".charCodeAt(0), i_max = "Z".charCodeAt(0); i <= i_max; ++i) Keys[String.fromCharCode(i)] = i;
+		for (i = "0".charCodeAt(0), i_max = "9".charCodeAt(0); i <= i_max; ++i) Keys[String.fromCharCode(i)] = i;
+		for (i = 112; i <= 123; ++i) Keys["F" + (i - 112)] = i;
+
+		return Keys;
+
+	})();
+
 
 
 	// Site specific classes/modules
@@ -2142,8 +2619,6 @@
 				language: "",
 				translated: false,
 				tags: {},
-				petition_expunge: 0,
-				petition_rename: [ 0 , 0 ],
 			};
 		};
 		var create_blank_gallery_stub = function () {
@@ -2175,6 +2650,7 @@
 				y_offset: 0,
 				height_required: 0,
 				index: 0,
+				page: 0,
 			};
 		};
 		var create_blank_image_data = function () {
@@ -2184,7 +2660,8 @@
 				gallery: {
 					gid: 0,
 					token: "",
-					title: null,
+					title: "",
+					page: 0,
 				},
 				image: {
 					filename: "",
@@ -2199,6 +2676,8 @@
 					key_current: null,
 					key_next: null,
 					key_previous: null,
+					key_first: null,
+					key_last: null,
 					direct_id: null,
 				},
 			};
@@ -2413,29 +2892,49 @@
 
 			get_pages_info_from_html: function (html) {
 				// Detect page groups
-				var pages = html.querySelectorAll(".ptt td"),
-					i, n;
+				var pages_container = html.querySelector(".ptt"),
+					i, m, n, nodes,
+					page_info = {
+						current: 0,
+						count: 0,
+						items_on_page: 0,
+						items_per_page: 0,
+						items_total: 0,
+					};
 
 				// Not found
-				if (pages.length === 0) return null;
-
-				// Create info
-				var page_info = {
-					current: 0,
-					count: 0,
-				};
+				if (pages_container === null) {
+					// Image viewing
+					if ((n = html.querySelectorAll(".sn>div>span")).length >= 2) {
+						page_info.current = (parseInt(n[0].textContent.trim(), 10) || 1) - 1;
+						page_info.count = parseInt(n[1].textContent.trim(), 10) || 0;
+						page_info.items_on_page = 1;
+						page_info.items_per_page = 1;
+						page_info.items_total = page_info.count;
+						return page_info;
+					}
+					else {
+						return null;
+					}
+				}
 
 				// Max
-				if ((n = pages[pages.length - 2])) {
+				if ((nodes = pages_container.querySelectorAll("td")).length >= 2) {
+					n = nodes[nodes.length - 2];
 					page_info.count = (parseInt(n.textContent.trim(), 10) || 1);
 				}
 
 				// Current
-				for (i = 0; i < pages.length; ++i) {
-					n = pages[i];
-					if (n.classList.contains("ptds")) {
-						page_info.current = (parseInt(n.textContent.trim(), 10) || 1) - 1;
-					}
+				if ((n = pages_container.querySelector("td.ptds")) !== null) {
+					page_info.current = (parseInt(n.textContent.trim(), 10) || 1) - 1;
+				}
+
+				// Items
+				if ((n = pages_container.parentNode.querySelector(".ip")) !== null && n.parentNode === pages_container.parentNode && (m = /([0-9,]+)\s*-\s*([0-9,]+)\s*of\s*([0-9,]+)/i.exec(n.textContent)) !== null) {
+					i = parseInt(m[1].replace(/,/g, ""), 10);
+					page_info.items_total = parseInt(m[3].replace(/,/g, ""), 10);
+					page_info.items_on_page = Math.max(1, parseInt(m[2].replace(/,/g, ""), 10) - i + 1);
+					page_info.items_per_page = (page_info.count <= 1 || page_info.current < page_info.count - 1) ? page_info.items_on_page : (i - 1) / page_info.current;
 				}
 
 				// Done
@@ -2489,7 +2988,7 @@
 					data.uploader = m[1].split("/")[1] || "";
 				}
 
-				if ((par = html.querySelectorAll("#gdd tr")).length >= 6) {
+				if ((par = html.querySelectorAll("#gdd tr")).length >= 7) {
 					// Date uploaded
 					if (
 						(n = par[0].querySelector(".gdt2")) !== null &&
@@ -2498,28 +2997,9 @@
 						data.date_uploaded = m;
 					}
 
-					// Image count/size
-					pattern = /([0-9]+)\s*@\s*([0-9\.]+)\s*(\w+)/;
-					if (
-						(n = par[1].querySelector(".gdt2")) !== null &&
-						(m = pattern.exec(n.textContent))
-					) {
-						data.image_count = parseInt(m[1], 10);
-						data.total_file_size_approx = size_label_to_bytes(m[2], m[3]);
-					}
-
-					// Resized
-					pattern = /for\s+browsing/i;
-					if (
-						(n = par[2].querySelector(".gdt2")) !== null &&
-						(m = pattern.exec(n.textContent))
-					) {
-						data.images_resized = true;
-					}
-
 					// Parent
 					if (
-						(n = par[3].querySelector(".gdt2>a")) !== null &&
+						(n = par[1].querySelector(".gdt2>a")) !== null &&
 						(info = API.get_gallery_url_info(n.getAttribute("href") || "")) !== null
 					) {
 						data.parent = {
@@ -2531,7 +3011,7 @@
 					// Visible
 					pattern = /no\s+\((.+?)\)/i;
 					if (
-						(n = par[4].querySelector(".gdt2")) &&
+						(n = par[2].querySelector(".gdt2")) &&
 						(m = pattern.exec(n.textContent))
 					) {
 						data.visible = false;
@@ -2541,11 +3021,39 @@
 					// Language
 					pattern = /(.+)(?:\s*\((.+?)\))/i;
 					if (
-						(n = par[5].querySelector(".gdt2")) &&
+						(n = par[3].querySelector(".gdt2"))
+					) {
+						data.language = (n.firstChild ? (n.firstChild.nodeValue || "").trim() : "");
+						if (
+							(n = n.querySelector(".halp")) !== null &&
+							(n.textContent.trim() == "TR")
+						) {
+							data.translated = true;
+						}
+					}
+
+					// Image size/resized
+					pattern = /([0-9\.]+)\s*(\w+)/i;
+					if (
+						(n = par[4].querySelector(".gdt2")) !== null &&
 						(m = pattern.exec(n.textContent))
 					) {
-						data.language = m[1].trim();
-						data.translated = !!m[2];
+						data.total_file_size_approx = size_label_to_bytes(m[1], m[2]);
+						if (
+							(n = n.querySelector(".halp")) !== null &&
+							(n.textContent.trim() == "RES")
+						) {
+							data.images_resized = true;
+						}
+					}
+
+					// Image count
+					pattern = /([0-9]+)\s*pages/i;
+					if (
+						(n = par[5].querySelector(".gdt2")) !== null &&
+						(m = pattern.exec(n.textContent))
+					) {
+						data.image_count = parseInt(m[1], 10);
 					}
 				}
 
@@ -2563,8 +3071,11 @@
 				}
 
 				// Favorites
-				if ((n = html.querySelector("#favcount")) !== null) {
-					data.favorites.count = parseInt(n.textContent.trim(), 10);
+				if (
+					(n = html.querySelector("#favcount")) !== null &&
+					(m = /\s*([0-9]+)/.exec(n.textContent || "")) !== null
+				) {
+					data.favorites.count = parseInt(m[1], 10);
 				}
 				if ((n = html.querySelector("#fav>div.i")) !== null) {
 					info = API.get_favorite_icon_info_from_node(n);
@@ -2572,33 +3083,22 @@
 					data.favorites.category_title = info[1];
 				}
 
-				// Petitions
-				if ((n = html.querySelector("#expungecount")) !== null) {
-					data.petition_expunge = parseFloat(n.textContent.trim());
-				}
-				if ((n = html.querySelector("#rename_r")) !== null) {
-					data.petition_rename[0] = parseFloat(n.textContent.trim());
-				}
-				if ((n = html.querySelector("#rename_j")) !== null) {
-					data.petition_rename[1] = parseFloat(n.textContent.trim());
-				}
-
 				// Thumbnail settings
-				if ((par = html.querySelectorAll("#gd5>.g1")).length >= 2) {
-					if (
-						(n = par[0].firstChild) !== null &&
-						(n.tagName == "A")
-					) {
-						data.thumbnail_size = "large";
-					}
-					else {
+				if ((n = html.querySelectorAll("#gdo4>.nosel")).length >= 2) {
+					if (n[0].classList.contains("ths")) {
 						data.thumbnail_size = "normal";
 					}
+					else {
+						data.thumbnail_size = "large";
+					}
+				}
 
-					pattern = /bold/i;
-					for (n = par[0].firstChild; n; n = n.nextSibling) {
-						if (pattern.exec(n.getAttribute("style"))) {
-							data.thumbnail_rows = parseInt(n.textContent.trim(), 10);
+				if ((n = html.querySelectorAll("#gdo2>.nosel")).length >= 1) {
+					for (i = 0; i < n.length; ++i) {
+						if (n[i].classList.contains("ths")) {
+							if ((m = /\s*([0-9]+)/.exec(n[i].textContent)) !== null) {
+								data.thumbnail_rows = parseInt(m[1], 10);
+							}
 							break;
 						}
 					}
@@ -2718,6 +3218,7 @@
 				var re_image_url = /width:([0-9]+)px;\s*height:([0-9]+)px;\s*background:.+?url\((.+?)\)\s*-([0-9]+)/,
 					re_required_height = /height:([0-9]+)/,
 					images = [],
+					page_id = 0,
 					large, nodes, image, i, n, m, n2;
 
 				// Find containers
@@ -2728,12 +3229,18 @@
 						nodes = n.querySelectorAll(".gdtl");
 					}
 
+					// Current page
+					if ((n = html.querySelector(".ptt td.ptds")) !== null) {
+						page_id = (parseInt(n.textContent.trim(), 10) || 1) - 1;
+					}
+
 					// Scan all
 					for (i = 0; i < nodes.length; ++i) {
 						n = nodes[i];
 
 						// Create new image
 						image = create_blank_gallery_image_data();
+						image.page = page_id;
 
 						// Required size
 						if ((m = re_required_height.exec(n.getAttribute("style") || ""))) {
@@ -2785,27 +3292,39 @@
 			},
 
 			get_image_info_from_html: function (html) {
-				var page_vars, nodes, info, re, i, n, m;
+				var page_vars, nodes, info, okay, re, i, n, m;
 
 				// Setup data
 				var data = create_blank_image_data();
 
 				// Scripts
-				if ((n = html.querySelector("body>script:not([src])")) !== null) {
-					// Get vars
+				if ((n = html.querySelectorAll("body>script:not([src])")).length > 0) {
 					re = /var\s+(\w+)\s*=\s*(.+?);/g;
-					page_vars = {};
-					n.textContent.replace(re, function (full, name, val) {
-						try {
-							page_vars[name] = JSON.parse(val);
-						}
-						catch (e) {}
-						return "";
-					});
+					okay = false;
+					for (i = 0; i < n.length && !okay; ++i) {
+						// Get vars
+						page_vars = {};
+						n[i].textContent.replace(re, function (full, name, val) {
+							try {
+								page_vars[name] = JSON.parse(val);
+							}
+							catch (e) {}
+							return "";
+						});
 
-					if ("startkey" in page_vars) data.navigation.key_current = page_vars.startkey;
-					if ("showkey" in page_vars) data.navigation.api_key = page_vars.showkey;
-					if ("si" in page_vars) data.navigation.direct_id = page_vars.si || null;
+						if ("startkey" in page_vars) {
+							data.navigation.key_current = page_vars.startkey;
+							okay = true;
+						}
+						if ("showkey" in page_vars) {
+							data.navigation.api_key = page_vars.showkey;
+							okay = true;
+						}
+						if ("si" in page_vars) {
+							data.navigation.direct_id = page_vars.si || null;
+							okay = true;
+						}
+					}
 				}
 				if (data.navigation.direct_id === null) {
 					if ((n = html.querySelectorAll("a[onclick]")).length > 0) {
@@ -2869,6 +3388,7 @@
 				) {
 					data.gallery.gid = info.gid;
 					data.gallery.token = info.token;
+					data.gallery.page = info.page;
 				}
 				else {
 					return null;
@@ -2897,6 +3417,20 @@
 					data.navigation.key_previous = info.key;
 				}
 
+				// First/last
+				if (
+					(n = nodes[0]) &&
+					(info = API.get_gallery_image_url_info(n.getAttribute("href") || "")) !== null
+				) {
+					data.navigation.key_first = info.key;
+				}
+				if (
+					(n = nodes[3]) &&
+					(info = API.get_gallery_image_url_info(n.getAttribute("href") || "")) !== null
+				) {
+					data.navigation.key_last = info.key;
+				}
+
 				// Original image
 				re = /(\d+)\s*x\s*(\d+)\s+([\d\.]+)\s*(\w+)/i;
 				if (
@@ -2922,7 +3456,7 @@
 			},
 			get_image_info_from_json: function (json) {
 				var div = document.createElement("div"),
-					info, re, m, n;
+					info, re, m, n, nodes;
 
 				// Setup data
 				var data = create_blank_image_data();
@@ -2981,6 +3515,21 @@
 					info.key != data.navigation.key_current
 				) {
 					data.navigation.key_previous = info.key;
+				}
+
+				// First/last
+				nodes = n.querySelectorAll(".sn>a");
+				if (
+					(n = nodes[0]) &&
+					(info = API.get_gallery_image_url_info(n.getAttribute("href") || "")) !== null
+				) {
+					data.navigation.key_first = info.key;
+				}
+				if (
+					(n = nodes[3]) &&
+					(info = API.get_gallery_image_url_info(n.getAttribute("href") || "")) !== null
+				) {
+					data.navigation.key_last = info.key;
 				}
 
 				// Gallery
@@ -3065,7 +3614,7 @@
 								var data = response ? API.get_image_info_from_json(response) : null;
 
 								if (data !== null) {
-									callback.call(null, API.OK, data);
+									callback.call(null, API.OK, data, response);
 								}
 								else {
 									callback.call(null, API.ERROR_PARSING, response);
@@ -3074,13 +3623,13 @@
 							else {
 								callback.call(null, API.ERROR_REQUEST_STATUS, [ response , status, status_text ]);
 							}
-						},
+						}._w(),
 						// On error
 						function (event) {
 							if (on_error) on_error.apply(this, arguments);
 
 							callback.call(null, API.ERROR_REQUEST, event);
-						},
+						}._w(),
 						on_complete,
 						on_progress
 					);
@@ -3095,7 +3644,7 @@
 							if (status == 200) {
 								var data = API.get_image_info_from_html(response);
 								if (data !== null) {
-									callback.call(null, API.OK, data);
+									callback.call(null, API.OK, data, response);
 								}
 								else {
 									callback.call(null, API.ERROR_PARSING, response);
@@ -3104,13 +3653,13 @@
 							else {
 								callback.call(null, API.ERROR_REQUEST_STATUS, [ response , status, status_text ]);
 							}
-						},
+						}._w(),
 						// On error
 						function (event) {
 							if (on_error) on_error.apply(this, arguments);
 
 							callback.call(null, API.ERROR_REQUEST, event);
-						},
+						}._w(),
 						on_complete,
 						on_progress
 					);
@@ -3187,6 +3736,37 @@
 						on_progress
 					);
 				}
+			},
+
+			get_gallery_images: function (gid, token, page, callback, on_load, on_error, on_complete, on_progress) {
+				return API.request_document("/g/" + gid + "/" + token + "/" + (page > 0 ? "?p=" + page : ""),
+					// On load
+					function (response, status, status_text) {
+						if (on_load) on_load.apply(this, arguments);
+
+						if (status == 200) {
+							var data = API.get_gallery_images_from_html(response);
+
+							if (data !== null) {
+								callback.call(null, API.OK, data, response);
+							}
+							else {
+								callback.call(null, API.ERROR_PARSING, response);
+							}
+						}
+						else {
+							callback.call(null, API.ERROR_REQUEST_STATUS, [ response , status, status_text ]);
+						}
+					},
+					// On error
+					function (event) {
+						if (on_error) on_error.apply(this, arguments);
+
+						callback.call(null, API.ERROR_REQUEST, event);
+					},
+					on_complete,
+					on_progress
+				);
 			},
 
 			set_html_gallery_favorite_icon: function (html, fav_id, fav_title) {
@@ -3435,6 +4015,11 @@
 				// Complete
 				return m[1] + "?" + search + (include_hash ? m[3] : "");
 			},
+			form_gallery_image_url: function (gid, key, page, direct_id) {
+				var url = "/s/" + key + "/" + gid + "-" + (page + 1);
+				if (direct_id) url += "?nl=" + direct_id;
+				return url;
+			},
 
 			modify_page_navigation_links: function (html, modify_fn) {
 				var pages = html.querySelectorAll(".ptt td,.ptb td"),
@@ -3586,11 +4171,7 @@
 
 
 
-		var trigger = function (event, data) {
-			for (var i = 0, list = this.events[event]; i < list.length; ++i) {
-				list[i].call(null, data, event);
-			}
-		};
+		var trigger = Events.trigger();
 		var on_option_click = function (menu, id, event) {
 			// Skip
 			if (event.which != 1) return;
@@ -3760,24 +4341,8 @@
 		Menu.prototype = {
 			constructor: Menu,
 
-			on: function (event, callback) {
-				if (event in this.events) {
-					this.events[event].push(callback);
-					return true;
-				}
-				return false;
-			},
-			off: function (event, callback) {
-				if (event in this.events) {
-					for (var i = 0, list = this.events[event]; i < list.length; ++i) {
-						if (list[i] === callback) {
-							list.splice(i, 1);
-							return true;
-						}
-					}
-				}
-				return false;
-			},
+			on: Events.on(),
+			off: Events.off(),
 
 			add_option: function (data, option_settings) {
 				var tag_type = "a",
@@ -4002,6 +4567,202 @@
 
 	})();
 
+	// Thumbnail acquiring
+	var ThumbnailGetter = (function () {
+
+		var ThumbnailGetter = function (gid, token, start) {
+			this.gid = gid;
+			this.token = token;
+			this.auto_get = false;
+
+			this.active = false;
+
+			this.per_page = 1;
+			this.pages = [];
+			this.pages_completed = 0;
+			this.queue = [];
+			this.request = null;
+			this.timeout = null;
+			this.delays = [ 1000 , 3000 ]; // [ success , error ]
+
+			this.events = {
+				info_get: [],
+				page_get: [],
+				complete: [],
+			};
+
+			this.pindex = new PriorityIndex(bind(check_if_not_complete, this));
+			this.pindex.set_index(start);
+			this.pindex.set_center(start);
+		};
+
+
+
+		var trigger = Events.trigger();
+
+		var check_if_not_complete = function (index) {
+			return (index < this.pages.length && this.pages[index] === null);
+		};
+
+		var start_request = function () {
+			// Nothing to do?
+			if (this.active || (this.queue.length === 0 || this.auto_get)) return;
+
+			// Update index
+			if (this.pages.length !== 0) {
+				if (this.pindex.update(false) !== PriorityIndex.FOUND) {
+					if (this.queue.length === 0) return;
+
+					var i = Math.floor(this.queue[0][0] / this.per_page),
+						j = this.pindex.index;
+
+					this.pindex.set_index(i);
+
+					if (this.pindex.update(true) !== PriorityIndex.FOUND) {
+						this.pindex.set_index(j);
+						return;
+					}
+				}
+			}
+
+			// Begin request
+			this.active = true;
+			this.request = API.get_gallery_images(this.gid, this.token, this.pindex.index, bind(on_response, this));
+		};
+
+		var update_pages = function (data, response) {
+			var page_info, i, p, p_min, p_max;
+
+			// Setup
+			if (this.pages.length === 0) {
+				if ((page_info = API.get_pages_info_from_html(response)) === null) return;
+
+				for (i = 0; i < page_info.count; ++i) this.pages.push(null);
+				this.pindex.set_index(page_info.current);
+				this.pindex.set_center(page_info.current);
+				this.pindex.set_range(0, this.pages.length);
+
+				this.per_page = Math.max(1, page_info.items_per_page);
+
+				trigger.call(this, "info_get", {
+					response: response,
+				});
+			}
+
+			// Set page
+			this.pages[this.pindex.index] = data;
+
+			// Update queue
+			p_min = this.pindex.index * this.per_page;
+			p_max = p_min + data.length;
+			for (i = 0; i < this.queue.length; ) {
+				p = this.queue[i][0];
+				if (p >= p_min && p < p_max) {
+					this.queue[i][1].call(null, data[p - p_min]);
+					this.queue.splice(i, 1);
+					continue;
+				}
+				++i;
+			}
+
+			// Trigger
+			trigger.call(this, "page_get", {
+				data: data,
+			});
+
+			// Next
+			if (++this.pages_completed >= this.pages.length) {
+				trigger.call(this, "complete", {});
+			}
+		};
+
+		var on_response = function (status, data, response) {
+			this.request = null;
+			var d_id = 1;
+
+			if (status === API.OK && data.length > 0) {
+				// Update
+				update_pages.call(this, data, response);
+				d_id = 0;
+			}
+
+			// Timeout til next
+			this.timeout = setTimeout(bind(on_delay_timeout, this), this.delays[d_id]);
+		}._w();
+		var on_delay_timeout = function () {
+			this.active = (this.pages_completed >= this.pages.length); // Leave it active if completed; this makes further requests be ignored
+			this.timeout = null;
+			start_request.call(this);
+		};
+
+
+
+		ThumbnailGetter.prototype = {
+			constructor: ThumbnailGetter,
+
+			init_from_html: function (html) {
+				var data = API.get_gallery_images_from_html(html);
+				if (data !== null) {
+					update_pages.call(this, data, html);
+				}
+			},
+			begin: function () {
+				start_request.call(this);
+			},
+
+			get: function (page_id, callback) {
+				var i = Math.floor(page_id / this.per_page),
+					j;
+
+				if (page_id >= 0 && i < this.pages.length && this.pages[i] !== null && (j = page_id % this.per_page) < this.pages[i].length) {
+					// Found
+					callback.call(null, this.pages[i][j]);
+					return;
+				}
+
+				// Add a callback
+				this.queue.push([ page_id , callback ]);
+				start_request.call(this);
+			}._w(),
+
+			get_sync: function (page_id) {
+				var i = Math.floor(page_id / this.per_page),
+					j;
+
+				return (page_id >= 0 && i < this.pages.length && this.pages[i] !== null && (j = page_id % this.per_page) < this.pages[i].length) ? this.pages[i][j] : null;
+			}._w(),
+
+			stop: function () {
+				if (this.request !== null) {
+					this.request.abort();
+					this.request = null;
+				}
+			},
+
+			set_center: function (center) {
+				if (this.pindex.center !== center) {
+					this.pindex.set_center(center);
+					this.pindex.set_index(center);
+				}
+			},
+
+			set_range_relative: function (min, max) {
+				this.pindex.set_range_relative(min, max);
+			},
+			set_priority: function (priority) {
+				this.pindex.set_priority(priority);
+			},
+
+			on: Events.on(),
+			off: Events.off(),
+		};
+
+
+
+		return ThumbnailGetter;
+
+	})();
+
 	// Gallery downloader
 	var GalleryDownloader = (function () {
 
@@ -4213,11 +4974,7 @@
 
 
 
-		var trigger = function (event, data) {
-			for (var i = 0, list = this.events[event]; i < list.length; ++i) {
-				list[i].call(null, data, event);
-			}
-		};
+		var trigger = Events.trigger();
 		var trigger_error = function (error_message) {
 			trigger.call(this, "error", {
 				downloader: this,
@@ -4872,24 +5629,8 @@
 				return s;
 			},
 
-			on: function (event, callback) {
-				if (event in this.events) {
-					this.events[event].push(callback);
-					return true;
-				}
-				return false;
-			},
-			off: function (event, callback) {
-				if (event in this.events) {
-					for (var i = 0, list = this.events[event]; i < list.length; ++i) {
-						if (list[i] === callback) {
-							list.splice(i, 1);
-							return true;
-						}
-					}
-				}
-				return false;
-			},
+			on: Events.on(),
+			off: Events.off(),
 
 		};
 
@@ -4920,6 +5661,11 @@
 
 			this.zip_info_json_name = "info.json";
 			this.zip_info_json_mode = constants.JSON_READABLE_2SPACE;
+
+			// Title
+			this.node_title = document.documentElement.querySelector("title");
+			this.title_default = this.node_title ? this.node_title.textContent || "" : "";
+			this.title_started = false;
 
 			// Nodes
 			this.node_main_link = null;
@@ -5478,6 +6224,8 @@
 
 			this.node_progress_image_current.style.width = fraction_to_percent(bytes_p2, 2);
 			this.node_progress_image_current_text.nodeValue = bytes_t2;
+
+			title_update.call(this, bytes_p);
 		};
 		var update_timeout_progress_bar = function (percent) {
 			var p = fraction_to_percent(percent, 2);
@@ -5742,6 +6490,43 @@
 			}
 		};
 
+		var title_init = function () {
+			this.title_started = true;
+			title_update.call(this, 0);
+		};
+		var title_update = function (progress) {
+			if (this.node_title === null || !this.title_started) return;
+
+			var p = Math.floor(progress * 100),
+				title = "[" + p.toFixed(0) + "%] " + this.title_default;
+
+			this.node_title.textContent = title;
+		};
+		var title_complete = function () {
+			if (this.node_title === null) return;
+
+			// Flash the title
+			var flash_on = false,
+				flash_count = 2,
+				flash_id = flash_on ? -1 : 0,
+				self = this,
+				interval;
+
+			interval = setInterval(function () {
+				if (flash_on) {
+					title_update.call(self, 1.0);
+					if (++flash_id >= flash_count) {
+						clearInterval(interval);
+						return;
+					}
+				}
+				else {
+					self.node_title.textContent = "\xa0";
+				}
+				flash_on = !flash_on;
+			}, 500);
+		};
+
 		var on_option_filename_change = function (value) {
 			// Set
 			this.filename_mode = value;
@@ -5922,6 +6707,9 @@
 
 				// Update
 				update_final_filename.call(this);
+
+				// Title
+				title_complete.call(this);
 			}
 			else if (this.loader.get_state() !== GalleryDownloader.NOT_STARTED) {
 				// Setup page close warning
@@ -5932,6 +6720,9 @@
 						return msg;
 					};
 					window.addEventListener("beforeunload", this.page_close_warning_cb, false);
+				}
+				if (!this.title_started) {
+					title_init.call(this);
 				}
 			}
 		};
@@ -6092,6 +6883,21 @@
 				$("span", "eze_gallery_page_indicator_text", "Page " + (index + 1)),
 			], $.P, node);
 
+			// Link styling
+			if (settings.get("multiviewer_by_default")) {
+				var nodes = node.querySelectorAll(".gdtm>div>a"),
+					i, url;
+
+				if (nodes.length === 0) {
+					nodes = node.querySelectorAll(".gdtl>a");
+				}
+
+				for (i = 0; i < nodes.length; ++i) {
+					url = (nodes[i].getAttribute("href") || "").replace(/#.*$/, "") + Hash.sep + "eze/view";
+					nodes[i].setAttribute("href", url);
+				}
+			}
+
 			// Done
 			return node;
 		};
@@ -6199,11 +7005,13 @@
 				custom_search_front_page: false,
 				custom_search_links: true,
 				custom_search_params: {},
+				multiviewer_by_default: false,
 			};
 			this.validators = {
 				custom_search_front_page: is_boolean,
 				custom_search_links: is_boolean,
 				custom_search_params: is_object_not_null,
+				multiviewer_by_default: is_boolean,
 			};
 
 			this.uconfig = {
@@ -6420,6 +7228,11 @@
 			vars.dl_bar_bg4 = CSS.color("#0060ff");
 			vars.dl_bar_bg5 = CSS.color("#8020ff");
 			vars.dl_bar_bg5_light = CSS.color("#5f1080");
+
+			vars.multiviewer_page_bg = CSS.color("#f0f0f0");
+			vars.multiviewer_page_hl = CSS.color("rgba(255,255,255,0.125)");
+			vars.multiviewer_page_selected = CSS.color("#0060ff");
+			vars.multiviewer_page_selected_hl = CSS.color("#0060ff");
 		}
 		else {
 			vars.gallery_item_hl = CSS.color("#f8f8f8");
@@ -6438,10 +7251,16 @@
 			vars.dl_bar_bg4 = CSS.color("#88ccff");
 			vars.dl_bar_bg5 = CSS.color("#d088ff");
 			vars.dl_bar_bg5_light = CSS.color("#ffc0ff");
+
+			vars.multiviewer_page_bg = CSS.color("#f0f0f0");
+			vars.multiviewer_page_hl = CSS.color("rgba(255,255,255,0.125)");
+			vars.multiviewer_page_selected = CSS.color("#88ccff");
+			vars.multiviewer_page_selected_hl = CSS.color("#88ccff");
 		}
 
 		// Create css
 		css = CSS.format(
+/*<compress-string>*/
 			[ //{
 			".id1:not(.e-Highlighted):not(.e-Filtered)>.id2{overflow:visible;position:relative;}",
 			".id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2{z-index:1;}",
@@ -6548,7 +7367,63 @@
 			".eze_settings_entry:nth-of-type(2n){background-color:{{color:bg}};}",
 			".eze_settings_label>*{vertical-align:middle;}",
 			".eze_settings_pad_left{margin-left:0.5em;}",
+
+			".eze_cv_container{position:absolute;left:0;top:0;bottom:0;right:0;overflow:hidden;}",
+			".eze_cv_offset_size{position:absolute;left:50%;top:50%;width:0;height:0;}",
+			".eze_cv_offset{width:100%;height:100%;transform:translate(0%,0%);}",
+			".eze_cv_content_container{display:inline-block;transform:translate(-50%,-50%);}",
+			".eze_cv_content{position:relative;}",
+			".eze_cv_container.eze_cv_container_transition_scale>.eze_cv_offset_size{transition:width 0.25s ease-in-out 0s,height 0.25s ease-in-out 0s;}",
+			".eze_cv_container.eze_cv_container_transition_scale>*>*>*>.eze_cv_content{transition:transform 0.25s ease-in-out 0s;}",
+			".eze_cv_container.eze_cv_container_transition_position>*>.eze_cv_offset{transition:transform 0.25s ease-in-out 0s;}",
+
+			"body.eze_multiviewer_visible{overflow:hidden;}",
+			".eze_multiviewer{position:absolute;left:0;top:0;bottom:0;right:0;font-size:16px;background-color:{{color:bg_dark}};}",
+			".eze_multiviewer:not(.eze_multiviewer_visible){display:none;}",
+			".eze_multiviewer.eze_multiviewer_visible~*{display:none;}",
+			".eze_multiviewer_sidebar{position:absolute;right:0;top:0;bottom:0;background-color:{{color:bg_light}};border-left:1px solid {{color:border}};overflow-x:hidden;overflow-y:scroll;}",
+			".eze_multiviewer_sidebar:not(.eze_multiviewer_sidebar_visible){display:none;}",
+			".eze_multiviewer_sidebar.eze_multiviewer_sidebar_left{right:auto;left:0;border-left:none;border-right:1px solid {{color:border}};}",
+			".eze_multiviewer_sidebar_size{}",
+			".eze_multiviewer_content{position:fixed;left:0;top:0;bottom:0;right:0;}",
+			".eze_multiviewer_content_size{position:absolute;left:0;top:0;bottom:0;right:0;}",
+			".eze_multiviewer_topbar{position:fixed;left:0;top:0;right:0;line-height:1.25em;background-color:{{color:bg_light}};border-bottom:1px solid {{color:border}};}",
+			".eze_multiviewer_topbar:not(.eze_multiviewer_topbar_visible){display:none;}",
+			".eze_multiviewer_scrollbars{position:absolute;left:0;top:0;right:0;bottom:0;overflow-x:hidden;overflow-y:hidden;}",
+			".eze_multiviewer_scrollbars.eze_multiviewer_scrollbars_visible_h{position:absolute;right:0;top:0;bottom:0;right:0;overflow-x:scroll;}",
+			".eze_multiviewer_scrollbars.eze_multiviewer_scrollbars_visible_v{position:absolute;right:0;top:0;bottom:0;right:0;overflow-y:scroll;}",
+			".eze_multiviewer_scrollbars:not(.eze_multiviewer_scrollbars_visible){display:none;}",
+			".eze_multiviewer_scrollbars_range{width:100%;height:100%;}",
+			".eze_multiviewer_scrollbars_size{width:100%;height:100%;}",
+			".eze_multiviewer_image_container{padding:0.5em;}",
+			".eze_multiviewer_image_size{position:relative;background-color:{{color:multiviewer_page_bg}};}",
+			".eze_multiviewer_image_container.eze_multiviewer_image_container_no_bg>.eze_multiviewer_image_size{background-color:transparent;}",
+			".eze_multiviewer_image{vertical-align:middle;-position:absolute;left:0;top:0;width:100%;height:100%;}",
+
+			".eze_multiviewer_thumb_container{}",
+			".eze_multiviewer_thumb_sep{display:block;cursor:default;border-top:0.125em solid {{color:text_light}};border-bottom:0.125em solid {{color:text_light}};height:0.125em;margin:0.5em 1em;}",
+			".eze_multiviewer_thumb_sep:not(.eze_multiviewer_thumb_sep_visible){display:none;}",
+			".eze_multiviewer_thumb{text-align:center;padding:0.5em 1em;cursor:pointer;transition:background-color 0.25s ease-in-out 0s;display:block;text-decoration:none;}",
+			".eze_multiviewer_thumb:not(.eze_multiviewer_thumb_visible){display:none;}",
+			".eze_multiviewer_thumb:hover{background-color:{{color:multiviewer_page_hl}};}",
+			".eze_multiviewer_thumb.eze_multiviewer_thumb_viewing{background-color:{{color:multiviewer_page_selected}};}",
+			".eze_multiviewer_thumb.eze_multiviewer_thumb_viewing:hover{background-color:{{color:multiviewer_page_selected_hl}};}",
+			".eze_multiviewer_thumb_sizer1{display:inline-block;vertical-align:middle;width:100%;}", // max-width:200px;
+			".eze_multiviewer_thumb_sizer2{position:relative;width:100%;}",
+			".eze_multiviewer_thumb_sizer3{position:relative;width:100%;height:100%;white-space:nowrap;line-height:0;}",
+			".eze_multiviewer_thumb_aligner{display:inline-block;vertical-align:middle;width:0;height:0;padding-top:50%;}",
+			".eze_multiviewer_thumb_size{display:inline-block;vertical-align:middle;white-space:normal;line-height:normal;width:100%;padding-top:100%;position:relative;background-color:{{color:multiviewer_page_bg}};overflow:hidden;}",
+			".eze_multiviewer_thumb_image{position:absolute;left:0;top:0;bottom:0;right:0;background-color:transparent;background-repeat:no-repeat;background-position:center center;background-size:auto;transform-origin:0 0;opacity:0.25;transition:opacity 0.25s ease-in-out 0s;}",
+			".eze_multiviewer_thumb[data-eze-state='0']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.25;}",
+			".eze_multiviewer_thumb[data-eze-state='1']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.25;}",
+			".eze_multiviewer_thumb[data-eze-state='2']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.25;}",
+			".eze_multiviewer_thumb[data-eze-state='3']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.5;}",
+			".eze_multiviewer_thumb[data-eze-state='4']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}",
+			".eze_multiviewer_thumb[data-eze-state='5']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.5;}",
+			".eze_multiviewer_thumb.eze_multiviewer_thumb_viewing[data-eze-state]>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}",
+			".eze_multiviewer_thumb[data-eze-state]:hover>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}",
 			].join(""), //}
+/*</compress-string>*/
 			vars
 		);
 
@@ -6733,6 +7608,8 @@
 	};
 
 	var setup_before_ready = function () {
+		API.block_redirections();
+
 		if (settings.get("custom_search_front_page")) {
 			// Check for auto-search redirect
 			if (window.location.pathname == "/" && window.location.search === "" && window.location.hash === "" && window.history.length <= 1) {
@@ -7948,7 +8825,6 @@
 	// Init
 	var settings = new Settings();
 	var h_nav = new Hash();
-	API.block_redirections();
 	setup_before_ready();
 	on_ready(function () {
 		// Forums
