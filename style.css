@@ -97,3 +97,18 @@ a.gh_page_link {
 a.gh_page_link:not(:hover) {
 	color: #808184;
 }
+
+.title_sep {
+	margin: 0 0 0 0.5em;
+	vertical-align: baseline;
+	font-size: 0.875em;
+	color: #808184;
+	display: none;
+}
+.title_full {
+	vertical-align: baseline;
+	font-size: 0.75em;
+	font-weight: normal;
+	color: #808184;
+	margin: 0 0 0 0.5em;
+}
