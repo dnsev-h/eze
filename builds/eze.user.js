@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.5
+// @version     1.0.6
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -11,8 +11,6 @@
 // @include     https://exhentai.org/*
 // @include     http://g.e-hentai.org/*
 // @include     https://g.e-hentai.org/*
-// @include     http://forums.e-hentai.org/*
-// @include     https://forums.e-hentai.org/*
 // @icon        data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwAQMAAABtzGvEAAAABlBMVEUAAABmBhHV14kpAAAAAXRSTlMAQObYZgAAADFJREFUeAFjIB4w//9BLPWBgSLq//HH/w8QQYE18GOj6hgwKCBCpcDOZQaZQpgiGgAA0dhUnSJVLdEAAAAASUVORK5CYII=
 // @updateURL   https://raw.githubusercontent.com/dnsev-h/eze/master/builds/eze.meta.js
 // @downloadURL https://raw.githubusercontent.com/dnsev-h/eze/master/builds/eze.user.js
@@ -236,13 +234,6 @@
 		return Hash;
 
 	})();
-
-	// Quick exit
-	var eze_hash = null;
-	if (window.location.hostname == "forums.e-hentai.org") {
-		eze_hash = Hash.decode(window.location.href);
-		if (eze_hash.path_array[0] != "eze") return; // No execute
-	}
 
 
 
@@ -2082,334 +2073,9 @@
 
 	})();
 
-	// Dynamic content viewing
-	var ContentViewer = (function () {
 
-		var create_node = function (cls) {
-			var n = document.createElement("div");
-			n.className = cls;
-			return n;
-		};
 
-		var stop_transition = function (node) {
-			node.style.transition = "none";
-			window.getComputedStyle(node).getPropertyValue("transform");
-			node.style.transition = "";
-		};
 
-		var add_transitionend_listener = function (node, cb) {
-			node.addEventListener("transitionend", cb, false);
-			node.addEventListener("webkitTransitionEnd", cb, false);
-			node.addEventListener("oTransitionEnd", cb, false);
-			node.addEventListener("otransitionend", cb, false);
-		};
-
-		var ContentViewer = function () {
-			this.container = create_node("eze_cv_container");
-			this.offset_size = create_node("eze_cv_offset_size");
-			this.offset = create_node("eze_cv_offset");
-			this.content_container = create_node("eze_cv_content_container");
-			this.content = create_node("eze_cv_content");
-
-			this.content_container.appendChild(this.content);
-			this.offset.appendChild(this.content_container);
-			this.offset_size.appendChild(this.offset);
-			this.container.appendChild(this.offset_size);
-
-			this.scale = 1.0;
-			this.position = [ 0.5 , 0.5 ];
-			this.scroll_size = [ 0 , 0 ];
-			this.container_size = null;
-			this.content_size = null;
-			this.transition_scale = false;
-			this.transition_position = false;
-			this.transitioning_scale = false;
-			this.transitioning_position = false;
-
-			var self = this;
-			add_transitionend_listener(this.content, function () {
-				self.transitioning_scale = false;
-			});
-			add_transitionend_listener(this.offset, function () {
-				self.transitioning_position = false;
-			});
-		};
-
-		ContentViewer.prototype = {
-			constructor: ContentViewer,
-
-			set_position: function (x, y) {
-				if (x < 0.0) x = 0.0;
-				else if (x > 1.0) x = 1.0;
-
-				if (y < 0.0) y = 0.0;
-				else if (y > 1.0) y = 1.0;
-
-				this.position[0] = x;
-				this.position[1] = y;
-
-				x = (x * -100) + 50;
-				y = (y * -100) + 50;
-
-				var s = "translate(" + x.toFixed(2) + "%," + y.toFixed(2) + "%)";
-				if (this.offset.style.transform !== s) {
-					this.transitioning_position = this.transition_position;
-					this.offset.style.transform = s;
-				}
-			},
-			set_position_index: function (p, index) {
-				if (p < 0.0) p = 0.0;
-				else if (p > 1.0) p = 1.0;
-
-				this.position[index] = p;
-
-				var x = (this.position[0] * -100) + 50,
-					y = (this.position[1] * -100) + 50,
-					s = "translate(" + x.toFixed(2) + "%," + y.toFixed(2) + "%)";
-
-				if (this.offset.style.transform !== s) {
-					this.transitioning_position = this.transition_position;
-					this.offset.style.transform = s;
-				}
-			},
-			get_position: function () {
-				return this.position;
-			},
-
-			set_scale: function (scale) {
-				this.scale = scale;
-
-				var s = "scale(" + this.scale.toFixed(2) + "," + this.scale.toFixed(2) + ")";
-				if (this.content.style.transform !== s) {
-					this.transitioning_scale = this.transition_scale;
-					this.content.style.transform = s;
-				}
-				this.update_size();
-			},
-			get_scale: function () {
-				return this.scale;
-			},
-
-			set_transition_scale: function (enabled) {
-				this.transition_scale = enabled;
-
-				var clist = this.container.classList,
-					cls = "eze_cv_container_transition_scale";
-
-				if (enabled !== clist.contains(cls)) {
-					clist.toggle(cls);
-				}
-			},
-			get_transition_scale: function () {
-				return this.transition_scale;
-			},
-			set_transition_position: function (enabled) {
-				this.transition_position = enabled;
-
-				var clist = this.container.classList,
-					cls = "eze_cv_container_transition_position";
-
-				if (enabled !== clist.contains(cls)) {
-					clist.toggle(cls);
-				}
-			},
-			get_transition_position: function () {
-				return this.transition_position;
-			},
-
-			stop_transitioning_position: function () {
-				this.transitioning_position = false;
-
-				stop_transition(this.offset);
-			},
-			stop_transitioning_scale: function () {
-				this.transitioning_scale = false;
-
-				stop_transition(this.content);
-
-				this.offset_size.style.transition = "none";
-				window.getComputedStyle(this.offset_size).getPropertyValue("width");
-				window.getComputedStyle(this.offset_size).getPropertyValue("height");
-				this.offset_size.style.transition = "";
-			},
-
-			is_transitioning_scale: function () {
-				return this.transitioning_scale;
-			},
-			is_transitioning_position: function () {
-				return this.transitioning_position;
-			},
-
-			get_container_size: function () {
-				return this.container_size;
-			},
-			get_content_size: function () {
-				return this.content_size;
-			},
-			get_scroll_size: function () {
-				return this.scroll_size;
-			},
-
-			update_size: function () {
-				this.container_size = this.container.getBoundingClientRect();
-				this.content_size = this.content_container.getBoundingClientRect();
-
-				var w = (this.content_size.width * this.scale) - this.container_size.width,
-					h = (this.content_size.height * this.scale) - this.container_size.height;
-
-				if (w < 0) w = 0;
-				if (h < 0) h = 0;
-
-				this.scroll_size[0] = w;
-				this.scroll_size[1] = h;
-
-				this.offset_size.style.width = w.toFixed(2) + "px";
-				this.offset_size.style.height = h.toFixed(2) + "px";
-			},
-		};
-
-		return ContentViewer;
-
-	})();
-
-	// Priority array indexer
-	var PriorityIndex = (function () {
-
-		var PriorityIndex = function (validate_fn) {
-			this.index = 0;
-			this.center = 0;
-			this.priority = PriorityIndex.BALANCED | PriorityIndex.AFTER;
-			this.absolute_range = [ 0 , 0 ];
-			this.relative_range = [ 0 , 0 ];
-			this.validate_fn = validate_fn;
-		};
-
-		PriorityIndex.BALANCED = 0x1; // Alternate between before and after
-		PriorityIndex.AFTER = 0x2; // Priority to pages after the current
-		PriorityIndex.BEFORE = 0x4; // Priority to pages before the current
-
-		PriorityIndex.FOUND = 0;
-		PriorityIndex.OUT_OF_RANGE = 1;
-		PriorityIndex.OUT_OF_RANGE_ABS = 2;
-
-		PriorityIndex.prototype = {
-			constructor: PriorityIndex,
-			set_range: function (min, max) {
-				this.absolute_range[0] = min;
-				this.absolute_range[1] = max;
-			},
-			set_range_relative: function (min, max) {
-				this.relative_range[0] = min;
-				this.relative_range[1] = max;
-			},
-			set_index: function (index) {
-				this.index = index;
-			},
-			set_center: function (center) {
-				this.center = center;
-			},
-			set_priority: function (priority) {
-				this.priority = priority;
-			},
-			update: function (ignore_relative) {
-				var dir_after = (this.priority & (PriorityIndex.BEFORE | PriorityIndex.AFTER)) !== PriorityIndex.BEFORE,
-					center = this.center,
-					abs_range = this.absolute_range,
-					rel_range = ignore_relative ? [ -1 , -1 ] : this.relative_range,
-					looped_once = false,
-					ret = PriorityIndex.OUT_OF_RANGE;
-
-				// Initial range check
-				if (this.index < abs_range[0] || this.index >= abs_range[1]) {
-					return PriorityIndex.OUT_OF_RANGE_ABS;
-				}
-
-				// Alternate
-				if ((this.priority & PriorityIndex.BALANCED) !== 0) {
-					var diffs = dir_after ? [ 1 , 0 , 1 ] : [ -1 , -1 , 0 ],
-						dist = this.index - center,
-						dist_pre;
-
-					// Alternating
-					while (true) {
-						this.index = center + dist;
-
-						if (dist === 0) {
-							if (this.validate_fn.call(null, this.index)) return PriorityIndex.FOUND;
-							dist += diffs[0];
-						}
-						else if (dist > 0) {
-							dist_pre = dist;
-							dist = diffs[1] - dist;
-							if (this.index >= abs_range[1] || (rel_range[1] >= 0 && dist_pre > rel_range[1])) break;
-							if (this.validate_fn.call(null, this.index)) return PriorityIndex.FOUND;
-						}
-						else {
-							dist_pre = dist;
-							dist = diffs[2] - dist;
-							if (this.index < abs_range[0] || (rel_range[0] >= 0 && -dist_pre > rel_range[0])) break;
-							if (this.validate_fn.call(null, this.index)) return PriorityIndex.FOUND;
-						}
-					}
-
-					// Continue to single direction
-					this.index = center + dist;
-					dir_after = (this.index > center);
-					looped_once = true;
-				}
-
-				// Single direction
-				while (true) {
-					if (dir_after) {
-						// After
-						while (true) {
-							if (this.index >= abs_range[1]) {
-								ret = PriorityIndex.OUT_OF_RANGE_ABS;
-								break;
-							}
-							else if (rel_range[1] >= 0 && this.index - center > rel_range[1]) {
-								ret = PriorityIndex.OUT_OF_RANGE;
-								break;
-							}
-							else if (this.validate_fn.call(null, this.index)) {
-								return PriorityIndex.FOUND;
-							}
-							++this.index;
-						}
-					}
-					else {
-						// Before
-						while (true) {
-							if (this.index < abs_range[0]) {
-								ret = PriorityIndex.OUT_OF_RANGE_ABS;
-								break;
-							}
-							else if (rel_range[0] >= 0 && center - this.index > rel_range[0]) {
-								ret = PriorityIndex.OUT_OF_RANGE;
-								break;
-							}
-							else if (this.validate_fn.call(null, this.index)) {
-								return PriorityIndex.FOUND;
-							}
-							--this.index;
-						}
-					}
-
-					// Terminate
-					if (looped_once) break;
-					looped_once = true;
-					dir_after = !dir_after;
-					this.index = center + (dir_after ? 1 : -1);
-				}
-
-				// Out of range
-				return ret;
-			},
-		};
-
-		return PriorityIndex;
-
-	})();
 
 	// Generic event functions
 	var Events = (function () {
@@ -2470,63 +2136,7 @@
 
 	})();
 
-	// Keyboard key names
-	var Keys = (function () {
 
-		var Keys = {
-			"BACKSPACE": 8,
-			"TAB": 9,
-			"ENTER": 13,
-			"SHIFT": 16,
-			"CTRL": 17,
-			"ALT": 18,
-			"PAUSE": 19,
-			"CAPS LOCK": 20,
-			"ESC": 27,
-			"SPACE": 32,
-			"PAGE UP": 33,
-			"PAGE DOWN": 34,
-			"END": 35,
-			"HOME": 36,
-			"LEFT": 37,
-			"UP": 38,
-			"RIGHT": 39,
-			"DOWN": 40,
-			"INSERT": 45,
-			"DELETE": 46,
-			",": 188,
-			".": 190,
-			"/": 191,
-			"`": 192,
-			"[": 219,
-			"\\": 220,
-			"]": 221,
-			"'": 222,
-			"NUMPAD 0": 96,
-			"NUMPAD 1": 97,
-			"NUMPAD 2": 98,
-			"NUMPAD 3": 99,
-			"NUMPAD 4": 100,
-			"NUMPAD 5": 101,
-			"NUMPAD 6": 102,
-			"NUMPAD 7": 103,
-			"NUMPAD 8": 104,
-			"NUMPAD 9": 105,
-			"NUMPAD *": 106,
-			"NUMPAD +": 107,
-			"NUMPAD -": 109,
-			"NUMPAD .": 110,
-			"NUMPAD /": 111,
-		};
-
-		var i, i_max;
-		for (i = "A".charCodeAt(0), i_max = "Z".charCodeAt(0); i <= i_max; ++i) Keys[String.fromCharCode(i)] = i;
-		for (i = "0".charCodeAt(0), i_max = "9".charCodeAt(0); i <= i_max; ++i) Keys[String.fromCharCode(i)] = i;
-		for (i = 112; i <= 123; ++i) Keys["F" + (i - 112)] = i;
-
-		return Keys;
-
-	})();
 
 
 
@@ -3247,7 +2857,7 @@
 			},
 
 			get_image_info_from_html: function (html) {
-				var page_vars, nodes, info, okay, re, i, n, m;
+				var page_vars, nodes, info, okay, re, replacer, i, n, m;
 
 				// Setup data
 				var data = create_blank_image_data();
@@ -3256,16 +2866,17 @@
 				if ((n = html.querySelectorAll("body>script:not([src])")).length > 0) {
 					re = /var\s+(\w+)\s*=\s*(.+?);/g;
 					okay = false;
+					replacer = function (full, name, val) {
+						try {
+							page_vars[name] = JSON.parse(val);
+						}
+						catch (e) {}
+						return "";
+					};
 					for (i = 0; i < n.length && !okay; ++i) {
 						// Get vars
 						page_vars = {};
-						n[i].textContent.replace(re, function (full, name, val) {
-							try {
-								page_vars[name] = JSON.parse(val);
-							}
-							catch (e) {}
-							return "";
-						});
+						n[i].textContent.replace(re, replacer);
 
 						if ("startkey" in page_vars) {
 							data.navigation.key_current = page_vars.startkey;
@@ -4522,201 +4133,7 @@
 
 	})();
 
-	// Thumbnail acquiring
-	var ThumbnailGetter = (function () {
 
-		var ThumbnailGetter = function (gid, token, start) {
-			this.gid = gid;
-			this.token = token;
-			this.auto_get = false;
-
-			this.active = false;
-
-			this.per_page = 1;
-			this.pages = [];
-			this.pages_completed = 0;
-			this.queue = [];
-			this.request = null;
-			this.timeout = null;
-			this.delays = [ 1000 , 3000 ]; // [ success , error ]
-
-			this.events = {
-				info_get: [],
-				page_get: [],
-				complete: [],
-			};
-
-			this.pindex = new PriorityIndex(bind(check_if_not_complete, this));
-			this.pindex.set_index(start);
-			this.pindex.set_center(start);
-		};
-
-
-
-		var trigger = Events.trigger();
-
-		var check_if_not_complete = function (index) {
-			return (index < this.pages.length && this.pages[index] === null);
-		};
-
-		var start_request = function () {
-			// Nothing to do?
-			if (this.active || (this.queue.length === 0 || this.auto_get)) return;
-
-			// Update index
-			if (this.pages.length !== 0) {
-				if (this.pindex.update(false) !== PriorityIndex.FOUND) {
-					if (this.queue.length === 0) return;
-
-					var i = Math.floor(this.queue[0][0] / this.per_page),
-						j = this.pindex.index;
-
-					this.pindex.set_index(i);
-
-					if (this.pindex.update(true) !== PriorityIndex.FOUND) {
-						this.pindex.set_index(j);
-						return;
-					}
-				}
-			}
-
-			// Begin request
-			this.active = true;
-			this.request = API.get_gallery_images(this.gid, this.token, this.pindex.index, bind(on_response, this));
-		};
-
-		var update_pages = function (data, response) {
-			var page_info, i, p, p_min, p_max;
-
-			// Setup
-			if (this.pages.length === 0) {
-				if ((page_info = API.get_pages_info_from_html(response)) === null) return;
-
-				for (i = 0; i < page_info.count; ++i) this.pages.push(null);
-				this.pindex.set_index(page_info.current);
-				this.pindex.set_center(page_info.current);
-				this.pindex.set_range(0, this.pages.length);
-
-				this.per_page = Math.max(1, page_info.items_per_page);
-
-				trigger.call(this, "info_get", {
-					response: response,
-				});
-			}
-
-			// Set page
-			this.pages[this.pindex.index] = data;
-
-			// Update queue
-			p_min = this.pindex.index * this.per_page;
-			p_max = p_min + data.length;
-			for (i = 0; i < this.queue.length; ) {
-				p = this.queue[i][0];
-				if (p >= p_min && p < p_max) {
-					this.queue[i][1].call(null, data[p - p_min]);
-					this.queue.splice(i, 1);
-					continue;
-				}
-				++i;
-			}
-
-			// Trigger
-			trigger.call(this, "page_get", {
-				data: data,
-			});
-
-			// Next
-			if (++this.pages_completed >= this.pages.length) {
-				trigger.call(this, "complete", {});
-			}
-		};
-
-		var on_response = function (status, data, response) {
-			this.request = null;
-			var d_id = 1;
-
-			if (status === API.OK && data.length > 0) {
-				// Update
-				update_pages.call(this, data, response);
-				d_id = 0;
-			}
-
-			// Timeout til next
-			this.timeout = setTimeout(bind(on_delay_timeout, this), this.delays[d_id]);
-		};
-		var on_delay_timeout = function () {
-			this.active = (this.pages_completed >= this.pages.length); // Leave it active if completed; this makes further requests be ignored
-			this.timeout = null;
-			start_request.call(this);
-		};
-
-
-
-		ThumbnailGetter.prototype = {
-			constructor: ThumbnailGetter,
-
-			init_from_html: function (html) {
-				var data = API.get_gallery_images_from_html(html);
-				if (data !== null) {
-					update_pages.call(this, data, html);
-				}
-			},
-			begin: function () {
-				start_request.call(this);
-			},
-
-			get: function (page_id, callback) {
-				var i = Math.floor(page_id / this.per_page),
-					j;
-
-				if (page_id >= 0 && i < this.pages.length && this.pages[i] !== null && (j = page_id % this.per_page) < this.pages[i].length) {
-					// Found
-					callback.call(null, this.pages[i][j]);
-					return;
-				}
-
-				// Add a callback
-				this.queue.push([ page_id , callback ]);
-				start_request.call(this);
-			},
-
-			get_sync: function (page_id) {
-				var i = Math.floor(page_id / this.per_page),
-					j;
-
-				return (page_id >= 0 && i < this.pages.length && this.pages[i] !== null && (j = page_id % this.per_page) < this.pages[i].length) ? this.pages[i][j] : null;
-			},
-
-			stop: function () {
-				if (this.request !== null) {
-					this.request.abort();
-					this.request = null;
-				}
-			},
-
-			set_center: function (center) {
-				if (this.pindex.center !== center) {
-					this.pindex.set_center(center);
-					this.pindex.set_index(center);
-				}
-			},
-
-			set_range_relative: function (min, max) {
-				this.pindex.set_range_relative(min, max);
-			},
-			set_priority: function (priority) {
-				this.pindex.set_priority(priority);
-			},
-
-			on: Events.on(),
-			off: Events.off(),
-		};
-
-
-
-		return ThumbnailGetter;
-
-	})();
 
 	// Gallery downloader
 	var GalleryDownloader = (function () {
@@ -6951,6 +6368,8 @@
 
 	})();
 
+
+
 	// Script settings
 	var Settings = (function () {
 
@@ -6961,12 +6380,14 @@
 				custom_search_links: true,
 				custom_search_params: {},
 				multiviewer_by_default: false,
+
 			};
 			this.validators = {
 				custom_search_front_page: is_boolean,
 				custom_search_links: is_boolean,
 				custom_search_params: is_object_not_null,
 				multiviewer_by_default: is_boolean,
+
 			};
 
 			this.uconfig = {
@@ -7578,7 +6999,7 @@
 		}
 	};
 
-	var setup_modifyied_titles = function () {
+	var setup_modified_titles = function () {
 		var re_pattern = /\b(exhentai|e-hentai)/i,
 			nodes, i;
 
@@ -8014,603 +7435,216 @@
 		// Primary setup function
 		var setup_panda = function () {
 			// Setup login
-			new LoginGUI();
+			set_doctype();
+			setup_document();
+			setup_title();
+			setup_stylesheet();
+			setup_dom();
 		};
 
 
 
-		// Forum iframe checking/setup function
-		setup_panda.iframe_setup = null;
+		var set_doctype = function () {
+			var new_doctype = document.implementation.createDocumentType(
+				"html",
+				"-//W3C//DTD XHTML 1.0 Transitional//EN",
+				"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtdd"
+			);
 
-		var setup_panda_forum_origin = null;
-		var setup_panda_forum_auto_run = false;
-		if (window.location.hostname == "forums.e-hentai.org" && eze_hash.path_array[0] == "eze") {
-			// Remove eze url
-			setup_panda_forum_origin = eze_hash.vars.origin || "";
-			setup_panda_forum_auto_run = eze_hash.vars.auto == "true";
-			window.history.replaceState(null, "", window.location.pathname + window.location.search);
+			if (document.doctype) {
+				document.replaceChild(new_doctype, document.doctype);
+			}
+			else {
+				document.insertBefore(new_doctype, document.firstChild);
+			}
+		};
+		var setup_document = function () {
+			var doc_el = document.documentElement,
+				head = doc_el.querySelector("head") || document.head || null,
+				body = doc_el.querySelector("body") || document.body || null,
+				meta_charset = $("meta", { charset: "UTF-8" }),
+				n;
 
-			// Setup function
-			setup_panda.iframe_setup = function () {
-				// Setup
-				var auto_hash = Hash.encode("eze", [
-					[ "origin", setup_panda_forum_origin ],
-					[ "auto", "true" ],
-				]);
+			// Create head
+			if (head !== null) {
+				head.innerHTML = "";
+			}
+			else {
+				head = $("head");
+				n = doc_el.firstChild;
+				if (n !== null) {
+					doc_el.insertBefore(head, n);
+				}
+				else {
+					doc_el.appendChild(head);
+				}
+			}
 
-				IframeController = IframeController();
-				new IframeController(setup_panda_forum_origin, setup_panda_forum_auto_run, auto_hash);
+			// Create body
+			if (body === null) {
+				body = $("body");
+				doc_el.appendChild(body);
+			}
+
+			// Setup head
+			head.appendChild(meta_charset);
+		};
+		var setup_title = function () {
+			var doc_el = document.documentElement,
+				title = $("title"),
+				head = doc_el.querySelector("head"),
+				i, n;
+
+			// Remove titles
+			n = document.querySelectorAll("title");
+			for (i = 0; i < n.length; ++i) {
+				n[i].parentNode.removeChild(n[i]);
+			}
+
+			// Add title
+			head.appendChild(title);
+
+			// Update title
+			update_title(title);
+
+			// Observe
+			var MutationObserver = (window.MutationObserver || window.WebKitMutationObserver);
+			if (MutationObserver) {
+				new MutationObserver(function () {
+					update_title(title);
+				})
+				.observe(title, { childList: true });
+			}
+		};
+		var update_title = function (title) {
+			var text = title.textContent,
+				text_target = "Login Helper";
+
+			// Update title
+			if (text != text_target) {
+				title.textContent = text_target;
+			}
+		};
+		var setup_stylesheet = function () {
+			// Styling
+			var vars = {
+				border: CSS.color("#000000"),
+				bg: CSS.color("#43464e"),
+				bg_dark: CSS.color("#34353b"),
+				bg_light: CSS.color("#4f535b"),
+				text: CSS.color("#f1f1f1"),
+				text_link: CSS.color("#dddddd"),
+				text_link_hover: CSS.color("#fffbdb"),
+				text_error: CSS.color("#ff8080"),
+				text_success: CSS.color("#80ff80"),
 			};
-		}
 
+			// Create css
+			var css = CSS.format(
+/*<compress-string>*/
+				[ //{
+				"body{font-size:10pt;font-family:arial,helvetica,sans-serif;color:{{color:text}};background:{{color:bg_dark}};padding:0;margin:0;}",
+				"a{color:{{color:text_link}};text-decoration:underline;cursor:pointer;}",
+				"a:hover{color:{{color:text_link_hover}};}",
 
+				".eze_main_container{position:absolute;left:0;top:0;bottom:0;right:0;white-space:nowrap;line-height:0;text-align:center;}",
+				".eze_main_container:before{content:\"\";display:inline-block;width:0;height:100%;vertical-align:middle;}",
+				".eze_main{display:inline-block;vertical-align:top;white-space:normal;line-height:normal;text-align:left;margin:2em 0;}",
+				".eze_main.eze_main_middle{vertical-align:middle;}",
+				".eze_main_box{border:1px solid {{color:border}};background-color:{{color:bg}};padding:1em;box-sizing:border-box;-moz-box-sizing:border-box;}",
 
-		var MutationObserver = (window.MutationObserver || window.WebKitMutationObserver);
+				".eze_input_line{display:block;text-align:left;width:20em;box-sizing:border-box;-moz-box-sizing:border-box;}",
+				".eze_input_line+.eze_input_line{margin-top:0.5em;}",
+				".eze_input_line.eze_input_center{text-align:center;}",
+				".eze_input_line_label_text{font-size:1.5em;font-weight:bold;}",
+				].join(""), //}
+/*</compress-string>*/
+				vars
+			);
 
+			// Insert
+			API.inject_style(css);
+		};
+		var setup_dom = function () {
+			var doc_el = document.documentElement,
+				body = document.body,
+				image = doc_el.querySelector("img"),
+				loc = window.location.href,
+				site = "" + window.location.hostname.replace(/\.[^\.]*$/, ""),
+				cookie_poll_interval = null,
+				n0, image_new, link1_container, link1, link2, link3;
 
+			// Find image url
+			if (image !== null) {
+				loc = image.getAttribute("src");
+			}
+			image_new = $("img", "eze_login_image", {
+				src: loc,
+				alt: "",
+			});
 
-		var LoginGUI = function () {
-			var self = this;
+			// Create DOM
+			n0 = $("div", "eze_main_container", [ //{
+				$("div", "eze_main eze_main_middle", [
+					$("div", "eze_main_box", [
+						$("div", "eze_input_line eze_input_center", [
+							image_new,
+						]),
+						$("div", "eze_input_line", [
+							$("span", "eze_input_line_label_text", "Login Instructions:"),
+						]),
+						$("div", "eze_input_line", [
+							link1_container = $("span", "eze_instruction eze_instruction_ready", [
+								$.text("Delete all e-hentai and "),
+								link1 = $("a", null, site, { title: "Click to delete " + site + " cookies" }),
+								$.text(" cookies"),
+							]),
+						]),
+						$("div", "eze_input_line", [
+							link2 = $("a", "eze_instruction", "Go to the homepage and log in", { href: "http://e-hentai.org/", target: "_blank", rel: "noreferrer nofollow" }),
+						]),
+						$("div", "eze_input_line", [
+							link3 = $("a", "eze_instruction", "Refresh the page", { href: "" }),
+						]),
+					]),
+				]),
+			]); //}
 
-			// Vars
-			this.form = null;
-			this.input_name = null;
-			this.input_pass = null;
-			this.status_text = null;
-
-			this.iframe_container = null;
-			this.iframe = null;
-			this.iframe_target_origin = "https://forums.e-hentai.org";
-			this.iframe_target = this.iframe_target_origin + "/index.php?act=Login&CODE=01";
-			this.iframe_loaded = false;
-			this.iframe_state = LoginGUI.STATE_INACTIVE;
-
-			// Setup
-			this.set_doctype();
-			this.setup_document();
-			this.setup_title();
-			this.setup_stylesheet();
-			this.setup_dom();
-
-			// Select
-			setTimeout(function () {
-				self.input_name.select();
-			}, 10);
+			var remove_cookies = function () {
+				Cookies.remove("yay", "/", "." + window.location.hostname);
+			};
 
 			// Events
-			window.addEventListener("message", function (event) {
-				if (event.origin == self.iframe_target_origin) {
-					self.process_message(JSON.parse(event.data));
-				}
-			}, false);
-		};
-		LoginGUI.STATE_INACTIVE = 0;
-		LoginGUI.STATE_ACTIVE = 1;
-		LoginGUI.STATE_LOGGED_IN = 2;
-		LoginGUI.prototype = {
-			constructor: LoginGUI,
+			link1.addEventListener("click", function (event) {
+				if (event.which !== 1) return;
 
-			set_doctype: function () {
-				var new_doctype = document.implementation.createDocumentType(
-					"html",
-					"-//W3C//DTD XHTML 1.0 Transitional//EN",
-					"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtdd"
-				);
+				remove_cookies();
 
-				if (document.doctype) {
-					document.replaceChild(new_doctype, document.doctype);
-				}
-				else {
-					document.insertBefore(new_doctype, document.firstChild);
-				}
-			},
-			setup_document: function () {
-				var doc_el = document.documentElement,
-					head = doc_el.querySelector("head") || document.head || null,
-					body = doc_el.querySelector("body") || document.body || null,
-					meta_charset = $("meta", { charset: "UTF-8" }),
-					n;
+				link1_container.classList.add("eze_instruction_complete");
+				link2.classList.add("eze_instruction_ready");
+				link3.classList.add("eze_instruction_ready");
 
-				// Create head
-				if (head !== null) {
-					head.innerHTML = "";
-				}
-				else {
-					head = $("head");
-					n = doc_el.firstChild;
-					if (n !== null) {
-						doc_el.insertBefore(head, n);
-					}
-					else {
-						doc_el.appendChild(head);
-					}
-				}
-
-				// Create body
-				if (body === null) {
-					body = $("body");
-					doc_el.appendChild(body);
-				}
-
-				// Setup head
-				head.appendChild(meta_charset);
-			},
-			setup_title: function () {
-				var doc_el = document.documentElement,
-					title = $("title"),
-					head = doc_el.querySelector("head"),
-					self = this,
-					i, n;
-
-				// Remove titles
-				n = document.querySelectorAll("title");
-				for (i = 0; i < n.length; ++i) {
-					n[i].parentNode.removeChild(n[i]);
-				}
-
-				// Add title
-				head.appendChild(title);
-
-				// Update title
-				this.update_title(title);
-
-				// Observe
-				if (MutationObserver) {
-					new MutationObserver(function () {
-						self.update_title(title);
-					})
-					.observe(title, { childList: true });
-				}
-			},
-			update_title: function (title) {
-				var text = title.textContent,
-					text_target = "ExHentai Login";
-
-				// Update title
-				if (text != text_target) {
-					title.textContent = text_target;
-				}
-			},
-			setup_stylesheet: function () {
-				// Styling
-				var vars = {
-					border: CSS.color("#000000"),
-					bg: CSS.color("#43464E"),
-					bg_dark: CSS.color("#34353B"),
-					bg_light: CSS.color("#4f535b"),
-					text: CSS.color("#F1F1F1"),
-					text_link: CSS.color("#DDDDDD"),
-					text_link_hover: CSS.color("#FFFBDB"),
-					text_error: CSS.color("#ff8080"),
-					text_success: CSS.color("#80ff80"),
-				};
-
-				// Create css
-				var css = CSS.format(
-					[ //{
-					"body{font-size:10pt;font-family:arial,helvetica,sans-serif;color:{{color:text}};background:{{color:bg_dark}};padding:0;margin:0;}",
-					"a{color:{{color:text_link}};}",
-					"a:hover{color:{{color:text_link_hover}};}",
-					"form{margin:0;padding:0;}",
-
-					".eze_main_container{position:absolute;left:0;top:0;bottom:0;right:0;white-space:nowrap;line-height:0;text-align:center;}",
-					".eze_main_container:before{content:\"\";display:inline-block;width:0;height:100%;vertical-align:middle;}",
-					".eze_main{display:inline-block;vertical-align:top;white-space:normal;line-height:normal;text-align:left;margin:2em 0;}",
-					".eze_main.eze_main_middle{vertical-align:middle;}",
-					".eze_main_box{border:1px solid {{color:border}};background-color:{{color:bg}};padding:1em;box-sizing:border-box;-moz-box-sizing:border-box;}",
-
-					".eze_input_line{display:block;text-align:center;width:20em;box-sizing:border-box;-moz-box-sizing:border-box;}",
-					".eze_input_line:not(.eze_input_line_label)+.eze_input_line{margin-top:0.5em;}",
-					".eze_input_line_label{text-align:left;}",
-					".eze_input_line_label_text{font-size:1.5em;font-weight:bold;}",
-					".eze_input{display:inline-block;vertical-align:middle;border:1px solid {{color:border}};background-color:{{color:bg_light}};color:{{color:text}};padding:0.25em;box-sizing:border-box;-moz-box-sizing:border-box;width:100%;font-size:2em;}",
-					".eze_input_button{display:inline-block;vertical-align:middle;border:1px solid {{color:border}};background-color:{{color:bg_light}};color:{{color:text}};padding:0.25em;box-sizing:border-box;-moz-box-sizing:border-box;width:100%;font-size:1.5em;}",
-					"input{outline:none;}",
-
-					".eze_input_line.eze_status_line{text-align:left;overflow:hidden;}",
-					".eze_status{font-size:1.25em;line-height:1.25em;height:1.25em;display:inline-block;white-space:nowrap;}",
-					".eze_status.eze_status_error{color:{{color:text_error}};}",
-					".eze_status.eze_status_success{color:{{color:text_success}};}",
-
-					".eze_login_iframe{width:0;height:0;visibility:hidden;opacity:0;margin:0;padding:0;border:none;}",
-					].join(""), //}
-					vars
-				);
-
-				// Insert
-				API.inject_style(css);
-			},
-			setup_dom: function () {
-				var doc_el = document.documentElement,
-					body = document.body,
-					image = doc_el.querySelector("img"),
-					loc = window.location.href,
-					n0, image_new;
-
-				// Find image url
-				if (image !== null) {
-					loc = image.getAttribute("src");
-				}
-				image_new = $("img", {
-					src: loc,
-					alt: "",
-				});
-
-				// Create DOM
-				n0 = $("div", "eze_main_container", [ //{
-					$("div", "eze_main eze_main_middle", [
-						this.form = $("form", "eze_main_box", [
-							$("div", "eze_input_line", [
-								image_new,
-							]),
-							$("div", "eze_input_line eze_input_line_label", [
-								$("span", "eze_input_line_label_text", "Username"),
-							]),
-							$("div", "eze_input_line", [
-								this.input_name = $("input", "eze_input", {
-									type: "text",
-									maxlength: 32,
-								}),
-							]),
-							$("div", "eze_input_line eze_input_line_label", [
-								$("span", "eze_input_line_label_text", "Password"),
-							]),
-							$("div", "eze_input_line", [
-								this.input_pass = $("input", "eze_input", {
-									type: "password",
-									maxlength: 32,
-								}),
-							]),
-							$("div", "eze_input_line", [
-								$("input", "eze_input_button", {
-									type: "submit",
-									value: "Log in",
-								}),
-							]),
-							$("div", "eze_input_line eze_status_line", [
-								this.status_text = $("span", "eze_status"),
-							]),
-							this.iframe_container = $("div"),
-						], $.ON, [ "submit", this.on_form_submit, false, [ this ] ]),
-					]),
-				]); //}
-
-				// Replace
-				body.innerHTML = "";
-				body.appendChild(n0);
-			},
-
-			on_form_submit: function (event) {
-				if (this.iframe_state == LoginGUI.STATE_INACTIVE) {
-					// Now active
-					this.iframe_state = LoginGUI.STATE_ACTIVE;
-
-					// Create iframe
-					if (this.iframe === null) {
-						this.iframe = $("iframe", "eze_login_iframe", {
-							src: this.iframe_target + "/" + Hash.encode("eze", { origin: (window.location.protocol + "//" + window.location.host) }),
-						}, $.ON, [ "load", this.on_iframe_load, false, [ this ] ], $.P, this.iframe_container);
-
-						this.set_status("Loading login form...", false);
-					}
-
-					// Check if ready and execute code
-					this.on_iframe_ready();
-				}
-
-				// Stop
 				event.preventDefault();
 				event.stopPropagation();
 				return false;
-			},
-			on_iframe_load: function () {
-				// Iframe has loaded
-				if (!this.iframe_loaded) {
-					this.iframe_loaded = true;
-					this.on_iframe_ready();
-				}
-			},
-			on_iframe_ready: function () {
-				if (!this.iframe_loaded) return;
+			}, false);
+			link3.addEventListener("click", function (event) {
+				if (event.which !== 1) return;
 
-				// Update button
-				this.set_status("Requesting login...", false);
+				remove_cookies(); // just in case
 
-				this.iframe.contentWindow.postMessage(JSON.stringify({
-					method: "eze_request_login",
-					name: this.input_name.value,
-					pass: this.input_pass.value,
-				}), this.iframe_target);
-			},
+				link2.classList.add("eze_instruction_complete");
+				link3.classList.add("eze_instruction_complete");
 
-			set_status: function (message, is_error, is_success) {
-				this.status_text.textContent = message;
-
-				if (is_error) {
-					this.status_text.classList.add("eze_status_error");
-					this.iframe_state = LoginGUI.STATE_INACTIVE;
-				}
-				else {
-					this.status_text.classList.remove("eze_status_error");
-				}
-
-				if (is_success) {
-					this.status_text.classList.add("eze_status_success");
-					this.iframe_state = LoginGUI.STATE_LOGGED_IN;
-				}
-				else {
-					this.status_text.classList.remove("eze_status_success");
-				}
-			},
-
-			process_message: function (msg) {
-				if (msg.method == "eze_request_login_ack") {
-					// Now processing
-					this.set_status("Processing login...", false);
-				}
-				else if (msg.method == "eze_request_login_captcha_required") {
-					// Captcha required
-					this.set_status("Captcha required", true);
-					// May make this work later
-				}
-				else if (msg.method == "eze_login_failed") {
-					// Error
-					this.set_status(msg.reason, true);
-				}
-				else if (msg.method == "eze_login_success") {
-					// Okay
-					this.set_status("Waiting for cookie...", false);
-				}
-				else if (msg.method == "eze_login_cookie") {
-					// Okay
-					if (this.process_cookie(msg.cookie)) {
-						this.set_status(msg.redundant ? "Already logged in - " : "Logged in - ", false, true);
-						this.complete_login();
-					}
-					else {
-						this.set_status("Login cookie not found", true);
-					}
-				}
-			},
-			process_cookie: function (cookie_str) {
-				var cookies = Cookies.get_all(cookie_str),
-					ipb_member_id = cookies.ipb_member_id,
-					ipb_pass_hash = cookies.ipb_pass_hash,
-					d;
-
-				if (ipb_member_id && ipb_pass_hash) {
-					// Create date
-					d = new Date();
-					d = new Date(d.getFullYear() + 1, d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds());
-
-					// Remove this
-					Cookies.remove("yay", "/", ".exhentai.org");
-
-					// Set new
-					Cookies.set("ipb_member_id", ipb_member_id, d, "/", ".exhentai.org");
-					Cookies.set("ipb_pass_hash", ipb_pass_hash, d, "/", ".exhentai.org");
-
-					// Okay
-					return true;
-				}
-
-				// Error
-				return false;
-			},
-
-			complete_login: function () {
-				// Remove iframe
-				if (this.iframe.parentNode !== null) {
-					this.iframe.parentNode.removeChild(this.iframe);
-				}
-
-				// Refresh link
-				this.status_text.appendChild($("a", { href: "." }, "Reload page"));
-
-				// Reload now
+				event.preventDefault();
+				event.stopPropagation();
 				window.location.reload();
-			},
-		};
+				return false;
+			}, false);
 
-
-
-		var IframeController = function () {
-
-			var IframeController = function (origin, auto_run, auto_hash) {
-				this.origin = origin;
-				this.parent_window = null;
-				this.auto_hash = auto_hash;
-
-				// Get parent window
-				try {
-					this.parent_window = parent;
-				}
-				catch (e) {}
-
-				if (this.parent_window !== null) {
-					// Run
-					if (auto_run) {
-						this.auto_send_cookie();
-					}
-					else {
-						// Message listening
-						var self = this;
-						window.addEventListener("message", function (event) {
-							if (event.origin == self.origin) {
-								self.process_message(JSON.parse(event.data));
-							}
-						}, false);
-					}
-				}
-			};
-
-
-
-			IframeController.prototype = {
-				constructor: IframeController,
-
-				send_message: function (data) {
-					// Respond
-					this.parent_window.postMessage(JSON.stringify(data), this.origin);
-				},
-
-				process_message: function (msg) {
-					if (msg.method == "eze_request_login") {
-						// Respond
-						this.send_message({
-							method: "eze_request_login_ack",
-						});
-
-						// Find form
-						var inputs = {
-								"UserName": msg.name,
-								"PassWord": msg.pass,
-							},
-							input_str = "",
-							self = this,
-							i, form, nodes, name, type;
-
-						nodes = document.querySelectorAll("form[action]");
-						for (i = 0; i < nodes.length; ++i) {
-							form = nodes[i];
-							if (form.querySelector("input[name=UserName]") !== null && form.querySelector("input[name=PassWord]") !== null) break;
-						}
-
-						// No form found; invalid
-						if (i >= nodes.length) {
-							self.send_message({
-								method: "eze_login_failed",
-								reason: "No form found",
-							});
-						}
-
-						// Create inputs
-						nodes = form.querySelectorAll("input");
-						for (i = 0; i < nodes.length; ++i) {
-							name = nodes[i].getAttribute("name");
-							if (!name || name in inputs) continue;
-
-							type = nodes[i].getAttribute("type").toLowerCase();
-							if (type == "checkbox" || type == "radio") {
-								if (nodes[i].checked) {
-									inputs[name] = "on";
-								}
-							}
-							else {
-								inputs[name] = nodes[i].value;
-							}
-						}
-
-						// Captcha?
-						if ("recaptcha_challenge_field" in inputs) {
-							if ("captcha" in msg) {
-								// Maybe later
-							}
-							else {
-								this.send_message({
-									method: "eze_request_login_captcha_required",
-									captcha_id: inputs.recaptcha_challenge_field,
-								});
-								return;
-							}
-						}
-
-						// Create input string
-						for (i in inputs) {
-							if (input_str.length > 0) input_str += "&";
-							input_str += encodeURIComponent(i) + "=" + encodeURIComponent("" + inputs[i]);
-						}
-
-						// Create XHR
-						var xhr = new XMLHttpRequest();
-						xhr.open("POST", form.getAttribute("action"), true);
-						xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-						xhr.responseType = "document";
-
-						xhr.addEventListener("load", function () {
-							if (xhr.status == 200) {
-								// Process
-								self.process_response(xhr.response);
-							}
-							else {
-								// Status error
-								self.send_message({
-									method: "eze_login_failed",
-									reason: "Status: " + xhr.status + " - " + xhr.statusText,
-								});
-							}
-						}, false);
-						xhr.addEventListener("error", function () {
-							// XHR error
-							self.send_message({
-								method: "eze_login_failed",
-								reason: "Error",
-							});
-						}, false);
-
-						// Send
-						xhr.send(input_str);
-					}
-				},
-
-				process_response: function (html) {
-					var n;
-					if ((n = html.querySelector("#userlinks>.home")) !== null) {
-						// Okay
-						this.send_message({
-							method: "eze_login_cookie",
-							cookie: document.cookie,
-							redundant: true,
-						});
-					}
-					else if ((n = html.querySelector("#redirectwrap")) !== null) {
-						// Okay
-						this.send_message({
-							method: "eze_login_success",
-						});
-
-						// Refresh window
-						this.refresh_window();
-					}
-					else if ((n = html.querySelector(".errorwrap>p")) !== null) {
-						// Login error
-						this.send_message({
-							method: "eze_login_failed",
-							reason: n.textContent,
-						});
-					}
-					else {
-						// Login error
-						this.send_message({
-							method: "eze_login_failed",
-							reason: "Login failed",
-						});
-					}
-				},
-
-				refresh_window: function () {
-					// Update hash
-					window.location.hash = this.auto_hash;
-
-					// Reload
-					window.location.reload();
-				},
-
-				auto_send_cookie: function () {
-					// Okay
-					this.send_message({
-						method: "eze_login_cookie",
-						cookie: document.cookie,
-						redundant: false,
-					});
-				},
-
-			};
-
-
-
-			return IframeController;
-
+			// Replace
+			body.innerHTML = "";
+			body.appendChild(n0);
 		};
 
 
@@ -8777,18 +7811,12 @@
 
 
 
+
 	// Init
 	var settings = new Settings();
 	var h_nav = new Hash();
 	setup_before_ready();
 	on_ready(function () {
-		// Forums
-		if (setup_panda.iframe_setup !== null) {
-			// Login support
-			setup_panda.iframe_setup();
-			return;
-		}
-
 		// Page check
 		var page_type = API.get_page_type_from_html(document.documentElement);
 		if (page_type === null) return; // Don't do anything
@@ -8800,7 +7828,7 @@
 		else {
 			// Styling
 			insert_stylesheet();
-			setup_modifyied_titles();
+			setup_modified_titles();
 			setup_custom_settings_link();
 
 			if (page_type == "search" || page_type == "favorites") {
@@ -8814,6 +7842,9 @@
 			}
 			else if (page_type == "settings") {
 				setup_settings();
+			}
+			else if (page_type == "image") {
+
 			}
 		}
 

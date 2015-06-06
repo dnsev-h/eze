@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name           eze
-// @version        1.0.5
+// @name           eze (dev)
+// @version        1.0.6
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -11,8 +11,6 @@
 // @include        https://exhentai.org/*
 // @include        http://g.e-hentai.org/*
 // @include        https://g.e-hentai.org/*
-// @include        http://forums.e-hentai.org/*
-// @include        https://forums.e-hentai.org/*
 // @icon           data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwAQMAAABtzGvEAAAABlBMVEUAAABmBhHV14kpAAAAAXRSTlMAQObYZgAAADFJREFUeAFjIB4w//9BLPWBgSLq//HH/w8QQYE18GOj6hgwKCBCpcDOZQaZQpgiGgAA0dhUnSJVLdEAAAAASUVORK5CYII=
 // ==/UserScript==
 // ==Meta==
@@ -281,13 +279,6 @@
 		return Hash;
 
 	})();
-
-	// Quick exit
-	var eze_hash = null;
-	if (window.location.hostname == "forums.e-hentai.org") {
-		eze_hash = Hash.decode(window.location.href);
-		if (eze_hash.path_array[0] != "eze") return; // No execute
-	}
 
 
 
@@ -2127,6 +2118,7 @@
 
 	})();
 
+/*<future>*/
 	// Dynamic content viewing
 	var ContentViewer = (function () {
 
@@ -2316,7 +2308,9 @@
 		return ContentViewer;
 
 	})();
+/*</future>*/
 
+/*<future>*/
 	// Priority array indexer
 	var PriorityIndex = (function () {
 
@@ -2455,6 +2449,7 @@
 		return PriorityIndex;
 
 	})();
+/*</future>*/
 
 	// Generic event functions
 	var Events = (function () {
@@ -2515,6 +2510,7 @@
 
 	})();
 
+/*<future>*/
 	// Keyboard key names
 	var Keys = (function () {
 
@@ -2572,6 +2568,7 @@
 		return Keys;
 
 	})();
+/*</future>*/
 
 
 
@@ -3292,7 +3289,7 @@
 			},
 
 			get_image_info_from_html: function (html) {
-				var page_vars, nodes, info, okay, re, i, n, m;
+				var page_vars, nodes, info, okay, re, replacer, i, n, m;
 
 				// Setup data
 				var data = create_blank_image_data();
@@ -3301,16 +3298,17 @@
 				if ((n = html.querySelectorAll("body>script:not([src])")).length > 0) {
 					re = /var\s+(\w+)\s*=\s*(.+?);/g;
 					okay = false;
+					replacer = function (full, name, val) {
+						try {
+							page_vars[name] = JSON.parse(val);
+						}
+						catch (e) {}
+						return "";
+					};
 					for (i = 0; i < n.length && !okay; ++i) {
 						// Get vars
 						page_vars = {};
-						n[i].textContent.replace(re, function (full, name, val) {
-							try {
-								page_vars[name] = JSON.parse(val);
-							}
-							catch (e) {}
-							return "";
-						});
+						n[i].textContent.replace(re, replacer);
 
 						if ("startkey" in page_vars) {
 							data.navigation.key_current = page_vars.startkey;
@@ -4567,6 +4565,7 @@
 
 	})();
 
+/*<future>*/
 	// Thumbnail acquiring
 	var ThumbnailGetter = (function () {
 
@@ -4762,6 +4761,7 @@
 		return ThumbnailGetter;
 
 	})();
+/*</future>*/
 
 	// Gallery downloader
 	var GalleryDownloader = (function () {
@@ -6996,6 +6996,1495 @@
 
 	})();
 
+/*<future>*/
+	// Gallery viewer
+	var Viewer = (function () {
+
+		var Viewer = function (par) {
+			// Settings
+			this.scrollbars_enabled = true;
+			this.sidebar_enabled = true;
+			this.sidebar_on_right = true;
+			this.sidebar_size = 200;
+			this.topbar_enabled = true;
+			this.size_flags = Viewer.SIZE_SHRINK_WIDTH;
+			this.thumbnail_show_state = Page.PAGE_NOT_LOADED;
+			this.reset_scale_on_change = true;
+			this.scale_default = 1.0;
+			this.scale_min = 0.5;
+			this.scale_max = 4.0;
+			this.scale_incr = 0.0;
+			this.scale_incr_mult = 2.0;
+			this.scroll_size = 50;
+
+			this.page_url_include_hash = true;
+			this.page_url_modify = true;
+
+			this.load_page_pindex = new PriorityIndex(bind(load_validate, this));
+			this.load_page_pindex.set_range_relative(1, 2);
+			this.load_pages_outside_range = true; // Preload pages outside of the available thumbnail range
+
+			this.load_image_from_fallback = true; // Allow automatic loading from the fallback image
+			this.load_image_max_time_before_error = 30.0; // Maximum time before image loading is cancelled into an error; 0 or negative means no maximum time
+			this.load_delay_times = [ 1.0 , 1.0 , 10.0 ];
+
+			this.visible = true;
+
+			// Preloading
+			this.load_delay_fn = bind(on_load_delay_timeout, this);
+			this.load_delay_mode = DELAY_MODE_NONE;
+			this.load_delay = null;
+			this.page_loading = null;
+			this.page_loading_waiting = null;
+
+			// Pages
+			this.page_info = API.get_image_info_from_html(document.documentElement);
+			this.gal_info = null;
+			this.api_key = this.page_info.navigation.api_key;
+			this.gid = this.page_info.gallery.gid;
+			this.pages = [];
+			this.pages_map = {};
+			this.page_current = null;
+			this.thumbnail_getter = new ThumbnailGetter(this.page_info.gallery.gid, this.page_info.gallery.token, this.page_info.gallery.page);
+
+			// Controls
+			this.controls_keyboard = {};
+			this.controls_mouse = {};
+
+			// Nodes
+			this.n_container = null;
+			this.n_sidebar = null;
+			this.n_sidebar_size = null;
+			this.n_sidebar_top_sep = null;
+			this.n_content_container = null;
+			this.n_content_size = null;
+			this.n_topbar = null;
+
+			this.c_viewer = new ContentViewer();
+			//this.c_viewer.set_transition_scale(true); // TODO : Settings for these
+			//this.c_viewer.set_transition_position(true);
+			this.n_content_size = this.c_viewer.container;
+			this.n_content_size.classList.add("eze_multiviewer_content_size");
+
+			this.n_scrollbars = null;
+			this.n_scrollbars_range = null;
+			this.n_scrollbars_size = null;
+			this.n_scrollbars_visible = [ false , false ];
+			this.n_scrollbars_timeout = null;
+
+			// Create DOM
+			this.n_container = $("div", "eze_multiviewer eze_multiviewer_visible", [ //{
+				this.n_sidebar = $("div", "eze_multiviewer_sidebar", [
+					this.n_sidebar_size = $("div", "eze_multiviewer_sidebar_size", [
+						$("div", "eze_multiviewer_thumb_container", [
+							this.n_sidebar_top_sep = $("div", "eze_multiviewer_thumb_sep"),
+						]),
+					]),
+				]),
+				this.n_content_container = $("div", "eze_multiviewer_content", [
+					this.n_content_size,
+					this.n_scrollbars = $("div", "eze_multiviewer_scrollbars", [
+						this.n_scrollbars_range = $("div", "eze_multiviewer_scrollbars_range", [
+							this.n_scrollbars_size = $("div", "eze_multiviewer_scrollbars_size"),
+						]),
+					]),
+				]),
+				this.n_topbar = $("div", "eze_multiviewer_topbar", "TOPBAR"), // TODO
+			]); //}
+
+			// Add to DOM
+			if (par) {
+				if (par.firstChild) {
+					par.insertBefore(this.n_container, par.firstChild);
+				}
+				else {
+					par.appendChild(this.n_container);
+				}
+			}
+
+			// Events
+			this.n_scrollbars.addEventListener("scroll", bind(on_scrollbars_scroll, this), false);
+			window.addEventListener("keydown", bind(on_window_keydown, this), true);
+			window.addEventListener("resize", bind(on_window_resize, this), false);
+			window.addEventListener("popstate", bind(on_window_popstate, this), false);
+			this.thumbnail_getter.on("page_get", bind(on_thumbnail_pages_get, this));
+
+			// Setup
+			load_settings.call(this);
+
+			on_window_resize.call(this);
+
+			var p = add_page.call(this, this.page_info, this.page_info.page);
+			if (p !== null) set_page.call(this, p, false, true, URL_DONT_MODIFY);
+		};
+
+
+
+		var Page = (function () {
+
+			var Page = function (parent, id, page_id, key) {
+				// Settings
+				this.parent = parent;
+				this.id = id;
+				this.page_id = page_id;
+				this.key = key;
+				this.data = null;
+				this.data_is_fallback = false;
+				this.thumbnail_data = null;
+				this.load_attempted = false;
+				this.aspect_ratio = 0.0;
+
+				this.state = Page.PAGE_NOT_LOADED;
+				this.container = $("div", "eze_multiviewer_image_container", [
+					this.container_size = $("div", "eze_multiviewer_image_size"),
+				]);
+				this.image = null;
+				this.image_events = null;
+				this.image_error_timeout = null;
+
+				this.request = null;
+
+				// Create sidebar nodes
+				this.thumbnail_image = null;
+				this.thumbnail_container = $("div", "eze_multiviewer_thumb_container", [ //{
+					this.thumbnail_container_outer = $("a", "eze_multiviewer_thumb", [
+						$("div", "eze_multiviewer_thumb_sizer1", [
+							$("div", "eze_multiviewer_thumb_sizer2", [
+								$("div", "eze_multiviewer_thumb_sizer3", [
+									$("div", "eze_multiviewer_thumb_aligner"),
+									this.thumbnail_container_size = $("div", "eze_multiviewer_thumb_size"),
+								]),
+							]),
+						]),
+					]),
+					this.thumbnail_sep = $("span", "eze_multiviewer_thumb_sep"),
+				]); //}
+
+				this.thumbnail_container_outer.addEventListener("click", bind(on_thumbnail_click, this), false);
+				this.thumbnail_visible = false;
+
+				// Set url
+				this.url = API.form_gallery_image_url(this.parent.gid, this.key, this.page_id, null);
+				if (this.parent.page_url_include_hash) this.url += Hash.sep + "eze/view";
+				this.thumbnail_container_outer.setAttribute("href", this.url);
+			}._w();
+
+
+
+			Page.PAGE_NOT_LOADED = 0;
+			Page.PAGE_LOADING = 1;
+			Page.PAGE_LOADED = 2;
+			Page.IMAGE_LOADING = 3;
+			Page.IMAGE_LOADED = 4;
+			Page.IMAGE_ERROR = 5;
+
+
+
+			var add_image_events = function () {
+				if (this.image_events !== null) return;
+
+				this.image_events = [];
+				add_event_listener(this.image_events, this.image, "load", bind(on_image_load, this), false);
+				add_event_listener(this.image_events, this.image, "error", bind(on_image_error, this), false);
+
+				if (this.parent.load_image_max_time_before_error > 0) {
+					this.image_error_timeout = setTimeout(bind(on_image_error_timeout, this), this.parent.load_image_max_time_before_error * 1000);
+				}
+			}._w();
+			var remove_image_events = function () {
+				if (this.image_events === null) return;
+
+				remove_event_listeners(this.image_events);
+				this.image_events = null;
+
+				if (this.image_error_timeout !== null) {
+					clearTimeout(this.image_error_timeout);
+					this.image_error_timeout = null;
+				}
+			}._w();
+
+			var load_thumbnail_aspect_ratio = function (img_url) {
+				var img = new Image(),
+					self = this,
+					cb;
+
+				cb = function () {
+					self.set_aspect_ratio(this.naturalWidth, this.naturalHeight, true);
+					img.removeEventListener("load", cb, false);
+					img.src = "";
+					cb = null;
+				};
+
+				img.addEventListener("load", cb, false);
+				img.src = img_url;
+			};
+
+			var get_next_visible = function () {
+				var i = this.id + 1,
+					pages = this.parent.pages,
+					pages_len = pages.length;
+
+				for (; i < pages_len; ++i) {
+					if (pages[i].thumbnail_visible) return pages[i];
+				}
+
+				return null;
+			};
+			var get_previous_visible = function () {
+				var i = this.id - 1,
+					pages = this.parent.pages;
+
+				for (; i >= 0; --i) {
+					if (pages[i].thumbnail_visible) return pages[i];
+				}
+
+				return null;
+			};
+
+			var add_to_sidebar = function (sidebar, other_page) {
+				var rel;
+				if (other_page === null || (rel = other_page.thumbnail_container).parentNode !== sidebar) {
+					sidebar.appendChild(this.thumbnail_container);
+				}
+				else {
+					sidebar.insertBefore(this.thumbnail_container, rel);
+				}
+			};
+
+			var set_state = function (state) {
+				this.state = state;
+				this.thumbnail_container_outer.setAttribute("data-eze-state", "" + this.state);
+				trigger.call(this, "state_change");
+			};
+
+			var trigger = function (event) {
+				on_page[event].call(this.parent, this);
+			}._w();
+
+			var on_image_load = function () {
+				// State update
+				this.container.classList.add("eze_multiviewer_image_loaded");
+				remove_image_events.call(this);
+				set_state.call(this, Page.IMAGE_LOADED);
+				trigger.call(this, "image_load");
+			};
+			var on_image_error = function () {
+				// State update
+				this.container.classList.add("eze_multiviewer_image_error");
+				remove_image_events.call(this);
+
+				// Remove image
+				if (this.image.parentNode !== null) {
+					this.image.parentNode.removeChild(this.image);
+				}
+				this.image = null;
+
+				// Error
+				set_state.call(this, Page.IMAGE_ERROR);
+				trigger.call(this, "image_error");
+				trigger.call(this, "content_change");
+			};
+			var on_image_error_timeout = function () {
+				this.image_error_timeout = null;
+				on_image_error.call(this);
+			};
+			var on_page_thumbnail_get = function (t_data) {
+				this.thumbnail_data = t_data;
+
+				// Create thumbnail
+				this.thumbnail_image = $("div", "eze_multiviewer_thumb_image");
+				this.thumbnail_image.style.backgroundImage = "url('" + t_data.thumbnail +"')";
+				this.thumbnail_container_size.appendChild(this.thumbnail_image);
+				if (this.thumbnail_data.width > 0) {
+					this.set_aspect_ratio(this.thumbnail_data.width, this.thumbnail_data.height, true);
+				}
+				else if (this.aspect_ratio <= 0.0) {
+					load_thumbnail_aspect_ratio.call(this, t_data.thumbnail);
+				}
+				this.update_thumbnail_size();
+
+				// Event
+				trigger.call(this, "thumbnail_load", {});
+			}._w();
+			var on_image_info_get = function (direct, status, data) {
+				this.request = null;
+
+				if (status === API.OK) {
+					this.set_data(data, direct);
+				}
+
+				trigger.call(this, "page_load");
+			};
+
+			var on_thumbnail_click = function (event) {
+				if (event.which !== 1) return;
+				set_page.call(this.parent, this, false, false, URL_PUSH);
+
+				event.preventDefault();
+				event.stopPropagation();
+				return false;
+			};
+
+
+
+			Page.prototype = {
+				constructor: Page,
+
+				init: function (data, sidebar, before_page) {
+					if (data !== null) this.set_data(data, false);
+					add_to_sidebar.call(this, sidebar, before_page);
+					this.parent.thumbnail_getter.get(this.page_id, bind(on_page_thumbnail_get, this));
+					set_state.call(this, this.state);
+				},
+
+				set_data: function (data, is_fallback) {
+					// Set data
+					this.data = data;
+					this.data_is_fallback = is_fallback;
+
+					this.set_aspect_ratio(this.data.image.width, this.data.image.height, false);
+
+					set_state.call(this, Page.PAGE_LOADED);
+				},
+
+				add_image: function () {
+					if (this.data === null) return false;
+
+					this.container.classList.remove("eze_multiviewer_image_container_no_bg");
+
+					if (this.image === null) {
+						this.image = $("img", "eze_multiviewer_image");
+						add_image_events.call(this);
+						this.image.setAttribute("alt", "");
+						this.image.setAttribute("src", this.data.image.url);
+						set_state.call(this, Page.IMAGE_LOADING);
+					}
+					if (this.image.parentNode !== this.container_size) {
+						this.container_size.innerHTML = "";
+						this.container_size.appendChild(this.image);
+
+						trigger.call(this, "content_change");
+					}
+
+					return true;
+				},
+
+				set_as_current: function (is_current) {
+					if (is_current) {
+						this.thumbnail_container_outer.classList.add("eze_multiviewer_thumb_viewed");
+						this.thumbnail_container_outer.classList.add("eze_multiviewer_thumb_viewing");
+					}
+					else {
+						this.thumbnail_container_outer.classList.remove("eze_multiviewer_thumb_viewing");
+					}
+				},
+
+				set_aspect_ratio: function (width, height, from_thumb) {
+					if (this.aspect_ratio > 0.0) return;
+
+					this.aspect_ratio = height / width;
+
+					var h = this.aspect_ratio * 100.0,
+						w = 100.0,
+						max_h = 150.0,
+						state = this.thumbnail_visible ? sidebar_scroll_state_get.call(this.parent) : null;
+
+					if (h > max_h) {
+						w *= (max_h / h);
+						h = max_h;
+					}
+
+					this.thumbnail_container_size.style.width = w.toFixed(2) + "%";
+					this.thumbnail_container_size.style.paddingTop = h.toFixed(2) + "%";
+
+					if (this.thumbnail_visible) {
+						sidebar_scroll_state_update.call(this.parent, state);
+					}
+				},
+				update_thumbnail_size: function () {
+					if (this.thumbnail_data === null) return;
+
+					if (this.thumbnail_data.width === 0) {
+						this.thumbnail_image.style.backgroundSize = "contain";
+					}
+					else {
+						var r = this.thumbnail_container_size.getBoundingClientRect();
+
+						this.thumbnail_image.style.backgroundPosition = (-this.thumbnail_data.x_offset).toFixed(2) + "px " + (-this.thumbnail_data.y_offset).toFixed(2) + "px";
+						this.thumbnail_image.style.transform = "scale(" + (r.width / this.thumbnail_data.width).toFixed(2) + "," + (r.height / this.thumbnail_data.height).toFixed(2) + ")";
+					}
+				},
+
+				set_image_size: function (size_flags, c_size) {
+					var node_style = this.container_size.style,
+						w = this.data.image.width, // true w/h
+						h = this.data.image.height,
+						c_w = c_size.width, // container w/h
+						c_h = c_size.height,
+						v = this.parent.c_viewer,
+						s = v.get_scale(),
+						r;
+
+					v.set_scale(1.0); // Ignore scalings
+					if (v.is_transitioning_scale()) v.stop_transitioning_scale();
+
+					node_style.width = w + "px";
+					node_style.height = h + "px";
+					r = this.container.getBoundingClientRect();
+					c_w += w - r.width;
+					c_h += h - r.height;
+
+					v.set_scale(s);
+					if (v.is_transitioning_scale()) v.stop_transitioning_scale();
+
+					if ((size_flags & Viewer.SIZE_EXPAND_WIDTH) !== 0) {
+						if (w < c_w) {
+							h *= c_w / w;
+							w = c_w;
+						}
+					}
+					if ((size_flags & Viewer.SIZE_EXPAND_HEIGHT) !== 0) {
+						if (h < c_h) {
+							w *= c_h / h;
+							h = c_h;
+						}
+					}
+
+					if ((size_flags & Viewer.SIZE_SHRINK_WIDTH) !== 0) {
+						if (w > c_w) {
+							h *= c_w / w;
+							w = c_w;
+						}
+					}
+					if ((size_flags & Viewer.SIZE_SHRINK_HEIGHT) !== 0) {
+						if (h > c_h) {
+							w *= c_h / h;
+							h = c_h;
+						}
+					}
+
+					node_style.width = w + "px";
+					node_style.height = h + "px";
+				},
+
+				get_state: function () {
+					return this.state;
+				},
+
+				load_data: function (direct) {
+					if (this.request !== null) return;
+
+					// Setup
+					var direct_id = (this.data !== null && direct) ? this.data.navigation.direct_id : null;
+
+					// Begin request
+					set_state.call(this, Page.PAGE_LOADING);
+					this.request = API.get_image_info(this.parent.gid, this.key, this.page_id, this.parent.api_key, direct_id, bind(on_image_info_get, this, direct_id !== null));
+				}._w(),
+
+				add_to: function (node) {
+					if (!this.add_image()) {
+						// Create a placeholder
+						this.container.classList.add("eze_multiviewer_image_container_no_bg");
+						this.container_size.textContent = "loading";
+						trigger.call(this, "content_change");
+					}
+
+					// Add
+					node.innerHTML = "";
+					node.appendChild(this.container);
+				},
+
+				has_next: function () {
+					return (this.id + 1 < this.parent.pages.length || (this.data !== null && this.data.navigation.key_next !== null));
+				},
+				has_previous: function () {
+					return (this.id > 0 || (this.data !== null && this.data.navigation.key_previous !== null));
+				},
+				get_next_page_id: function () {
+					return this.has_next() ? this.page_id + 1 : -1;
+				},
+				get_previous_page_id: function () {
+					return this.has_previous() ? this.page_id - 1 : -1;
+				},
+				get_last_page_id: function () {
+					return this.parent.page_info.page_count - 1;
+				},
+				get_first_page_id: function () {
+					return 0;
+				},
+
+				get_url: function () {
+					return this.url;
+				},
+
+				is_thumbnail_visible: function () {
+					return this.thumbnail_visible;
+				},
+				show_thumbnail: function () {
+					if (this.thumbnail_visible) return;
+
+					var vis_class = "eze_multiviewer_thumb_sep_visible",
+						p, n;
+
+					// Get the scroll state
+					var state = sidebar_scroll_state_get.call(this.parent);
+
+					// Update Update visibility/size
+					this.thumbnail_visible = true;
+					this.thumbnail_container_outer.classList.add("eze_multiviewer_thumb_visible");
+					if (this.thumbnail_data !== null) this.update_thumbnail_size();
+
+					// Separator before
+					if (this.id > 0 && (p = get_previous_visible.call(this)) !== null) {
+						n = p.thumbnail_sep;
+						if ((this.page_id - 1 !== p.page_id) != n.classList.contains(vis_class)) {
+							n.classList.toggle(vis_class);
+						}
+					}
+					else {
+						n = this.parent.n_sidebar_top_sep;
+						if ((this.page_id > 0) != n.classList.contains(vis_class)) {
+							n.classList.toggle(vis_class);
+						}
+					}
+
+					// Separator after
+					n = this.thumbnail_sep;
+					if (this.id < this.parent.pages.length - 1 && (p = get_next_visible.call(this)) !== null) {
+						if ((this.page_id + 1 !== p.page_id) != n.classList.contains(vis_class)) {
+							n.classList.toggle(vis_class);
+						}
+					}
+					else {
+						if ((this.page_id < this.parent.page_info.page_count - 1) != n.classList.contains(vis_class)) {
+							n.classList.toggle(vis_class);
+						}
+					}
+
+					// Update scroll
+					sidebar_scroll_state_update.call(this.parent, state);
+				},
+			};
+
+
+
+			return Page;
+
+		})();
+		Viewer.Page = Page;
+
+
+
+		var DELAY_MODE_NONE = -1;
+		var DELAY_MODE_MINIMUM = 0;
+		var DELAY_MODE_AUTO = 1;
+		var DELAY_MODE_FORCED = 2;
+
+		Viewer.SIZE_SHRINK_WIDTH = 0x1; // Shrink width to fit
+		Viewer.SIZE_EXPAND_WIDTH = 0x2; // Expand width to fit
+		Viewer.SIZE_SHRINK_HEIGHT = 0x4; // Shrink height to fit
+		Viewer.SIZE_EXPAND_HEIGHT = 0x8; // Expand height to fit
+		Viewer.SHOW_THUMBNAILS_ON_VIEW = 0; // Show thumbnails when an image is viewed
+		Viewer.SHOW_THUMBNAILS_ON_PRELOAD = 1; // Show thumbnails after the image has been preloaded
+		Viewer.SHOW_THUMBNAILS_ON_PRELOADING = 2; // Show thumbnails when the image is preloading
+		Viewer.SHOW_THUMBNAILS_ON_ACQUIRE = 3; // Show thumbnails as soon as they are acquired
+
+		var URL_DONT_MODIFY = 0;
+		var URL_PUSH = 1;
+		var URL_REPLACE = 2;
+
+		var actions = {
+			GOTO_NEXT: 100,
+			GOTO_PREVIOUS: 101,
+			GOTO_FIRST: 102,
+			GOTO_LAST: 103,
+			LOAD_FALLBACK: 200,
+			SCROLL_ADVANCE: 301,
+			SCROLL_BACK: 302,
+			SCROLL_UP: 303,
+			SCROLL_DOWN: 304,
+			SCROLL_LEFT: 305,
+			SCROLL_RIGHT: 306,
+			SCROLL_TOP: 307,
+			SCROLL_BOTTOM: 308,
+			SCROLL_LEFTMOST: 309,
+			SCROLL_RIGHTMOST: 310,
+			SCROLL_MIDDLE: 311,
+			SCROLL_CENTER: 312,
+			ZOOM_IN: 400,
+			ZOOM_OUT: 401,
+			ZOOM_DEFAULT: 402,
+			ZOOM_FIT_WIDTH: 403,
+			ZOOM_FIT_HEIGHT: 404,
+			TOGGLE_SIDEBAR: 500,
+			TOGGLE_TOPBAR: 501,
+		};
+		Viewer.actions = actions;
+
+		var mouse_controls = {
+			"MOUSE WHEEL UP": true,
+			"MOUSE WHEEL DOWN": true,
+		};
+
+
+
+		var load_settings = function () {
+			var s = settings.get("multiviewer_settings"),
+				i, c, code;
+
+			this.set_sidebar_enabled(s.sidebar_enabled);
+			this.set_sidebar_side(s.sidebar_on_right);
+			this.set_sidebar_size(s.sidebar_size);
+			this.set_topbar_enabled(s.topbar_enabled);
+			this.set_scrollbars_enabled(s.scrollbars_enabled);
+			this.set_thumbnail_show_state(s.thumbnail_show_state);
+			this.set_size_flags(s.size_flags);
+
+			this.reset_scale_on_change = s.reset_scale_on_change;
+
+			this.load_pages_outside_range = s.load_pages_outside_range;
+			this.load_image_from_fallback = s.load_image_from_fallback;
+			this.load_image_max_time_before_error = s.load_image_max_time_before_error;
+			this.load_delay_times[0] = s.load_delay_time_min;
+			this.load_delay_times[1] = s.load_delay_time_auto;
+			this.load_delay_times[2] = s.load_delay_time_load;
+
+			this.load_page_pindex.set_priority(s.load_page_priority);
+			this.load_page_pindex.set_range_relative(s.load_page_range_before, s.load_page_range_after);
+
+			this.thumbnail_getter.set_priority(s.load_thumbnail_priority);
+			this.thumbnail_getter.set_range_relative(s.load_thumbnail_range_before, s.load_thumbnail_range_after);
+
+			// Controls
+			s = settings.get("multiviewer_controls");
+			for (i = 0; i < s.length; ++i) {
+				c = s[i];
+				code = c[0];
+
+				if (c[1]) {
+					code = (typeof(code) === "string") ? Keys[code] : code;
+					this.controls_keyboard[code] = c.slice(2);
+				}
+				else {
+					this.controls_mouse[code] = c.slice(2);
+				}
+			}
+		};
+
+		var update_topbar_size = function () {
+			var s = this.n_topbar.getBoundingClientRect().height + "px";
+			this.n_content_container.style.marginTop = s;
+			this.n_sidebar.style.marginTop = s;
+		};
+		var update_sidebar_size = function () {
+			this.n_sidebar_size.style.width = this.sidebar_size + "px";
+
+			var w = this.n_sidebar.getBoundingClientRect().width + "px",
+				i;
+
+			if (this.sidebar_on_right) {
+				this.n_content_container.style.marginRight = w;
+				this.n_content_container.style.marginLeft = "";
+			}
+			else {
+				this.n_content_container.style.marginLeft = w;
+				this.n_content_container.style.marginRight = "";
+			}
+
+			// Update thumbnails
+			for (i = 0; i < this.pages.length; ++i) {
+				this.pages[i].update_thumbnail_size();
+			}
+		};
+		var update_current_page = function () {
+			// Set node size
+			if (this.page_current.data !== null) {
+				this.page_current.set_image_size(this.size_flags, this.n_content_size.getBoundingClientRect());
+			}
+
+			// Update size
+			this.c_viewer.update_size();
+
+			// Update scrollbar display
+			if (this.scrollbars_enabled) {
+				var size = this.c_viewer.get_scroll_size();
+
+				if (page_scrollbars_set_visible.call(this, size[0] > 0, size[1] > 0)) {
+					page_scrollbars_update_sizes.call(this);
+
+					// Set node size
+					if (this.page_current.data !== null) {
+						this.page_current.set_image_size(this.size_flags, this.n_content_size.getBoundingClientRect());
+					}
+					this.c_viewer.update_size();
+
+					// Set scrollbar range
+					page_scrollbars_set_range.call(this, size[0], size[1]);
+					page_scrollbars_update_positions.call(this);
+				}
+			}
+		};
+
+		var add_page = function (data, page_id) {
+			var pages_len = this.pages.length,
+				rel = null,
+				key = null,
+				page, i, j, k, info;
+
+			// Already exists
+			if (page_id in this.pages_map) return this.pages_map[page_id];
+
+			// Find key
+			if (data !== null) {
+				key = data.navigation.key_current;
+			}
+			else if ((info = this.thumbnail_getter.get_sync(page_id)) !== null && (info = API.get_gallery_image_url_info(info.url)) !== null) {
+				key = info.key;
+			}
+			else if (page_id === 0) {
+				key = this.page_info.navigation.key_first;
+			}
+			else if (page_id === this.page_info.page_count - 1) {
+				key = this.page_info.navigation.key_last;
+			}
+			else if ((k = "" + (page_id - 1)) in this.pages_map && (info = this.pages_map[k].data) !== null) {
+				key = info.navigation.key_next;
+			}
+			else if ((k = "" + (page_id + 1)) in this.pages_map && (info = this.pages_map[k].data) !== null) {
+				key = info.navigation.key_previous;
+			}
+
+			// Not found
+			if (key === null) return null;
+
+
+
+			for (i = 0; i < pages_len; ++i) {
+				if (this.pages[i].page_id > page_id) {
+					rel = this.pages[i];
+					break;
+				}
+			}
+
+			// Create new page
+			page = new Page(this, i, page_id, key);
+			this.pages.splice(i, 0, page);
+			++pages_len;
+			for (j = i + 1; j < pages_len; ++j) {
+				this.pages[j].id = j;
+			}
+			this.pages_map["" + page_id] = page;
+
+			// Setup page
+			page.init(data, this.n_sidebar_size, rel);
+
+			// Update load position
+			if (this.load_page_pindex.center >= i) {
+				this.load_page_pindex.set_center(this.load_page_pindex.center + 1);
+			}
+			if (this.load_page_pindex.index >= i) {
+				this.load_page_pindex.set_index(this.load_page_pindex.index + 1);
+			}
+			update_load_range.call(this);
+
+			// Done
+			return page;
+		}._w();
+		var set_page = function (page, scroll_to_bottom, force_init, url_mode) {
+			// Unset old
+			if (this.page_current !== null) {
+				this.page_current.set_as_current(false);
+			}
+
+			// Switch to new
+			this.page_current = page;
+			page.set_as_current(true);
+			page.add_to(this.c_viewer.content);
+
+			if (this.reset_scale_on_change) {
+				this.c_viewer.set_scale(this.scale_default, true);
+				if (this.c_viewer.is_transitioning_scale()) this.c_viewer.stop_transitioning_scale();
+			}
+
+			update_current_page.call(this, false);
+
+			if (page.thumbnail_data !== null) {
+				this.thumbnail_getter.set_center(page.thumbnail_data.page);
+			}
+
+			load_set_target.call(this, this.page_current, force_init);
+
+			sidebar_scroll_to_current.call(this);
+			page_scroll_set.call(this, 0.0, scroll_to_bottom ? 1.0 : 0.0, true);
+
+			// Update url
+			if (this.page_url_modify) {
+				if (url_mode === URL_PUSH) {
+					window.history.pushState(null, "", this.page_current.get_url());
+				}
+				else if (url_mode === URL_REPLACE) {
+					window.history.replaceState(null, "", this.page_current.get_url());
+				}
+			}
+		}._w();
+		var go_to_page_by_id = function (page_id, url_mode) {
+			var p = (page_id in this.pages_map) ? this.pages_map[page_id] : add_page.call(this, null, page_id);
+			if (p !== null) {
+				set_page.call(this, p, false, false, url_mode);
+			}
+		};
+
+		var update_load_range = function () {
+			var p_min = 0,
+				p_max = this.pages.length;
+
+			if (this.load_pages_outside_range) {
+				if (this.pages[p_min].has_previous()) --p_min;
+				if (this.pages[p_max - 1].has_next()) ++p_max;
+			}
+			this.load_page_pindex.set_range(p_min, p_max);
+		};
+
+		var page_scrollbars_set_visible = function (h_enabled, v_enabled) {
+			this.n_scrollbars_visible[0] = h_enabled;
+			this.n_scrollbars_visible[1] = v_enabled;
+
+			var clist = this.n_scrollbars.classList,
+				cls;
+
+			// Update display
+			if (h_enabled !== clist.contains((cls = "eze_multiviewer_scrollbars_visible_h"))) clist.toggle(cls);
+			if (v_enabled !== clist.contains((cls = "eze_multiviewer_scrollbars_visible_v"))) clist.toggle(cls);
+
+			return h_enabled || v_enabled;
+		};
+		var page_scrollbars_set_range = function (h_size, v_size) {
+			// Update scroll range
+			this.n_scrollbars_range.style.paddingRight = this.n_scrollbars_visible[0] ? h_size + "px" : "";
+			this.n_scrollbars_range.style.paddingBottom = this.n_scrollbars_visible[1] ? v_size + "px" : "";
+		};
+		var page_scrollbars_update_positions = function () {
+			var size = this.c_viewer.get_scroll_size(),
+				position = this.c_viewer.get_position();
+
+			page_scrollbars_ignore_for.call(this, 10);
+
+			this.n_scrollbars.scrollLeft = size[0] * position[0];
+			this.n_scrollbars.scrollTop = size[1] * position[1];
+		};
+		var page_scrollbars_update_sizes = function () {
+			var r_outer = this.n_scrollbars.getBoundingClientRect(),
+				r_inner = this.n_scrollbars_size.getBoundingClientRect(),
+				w = (r_outer.width - r_inner.width) + "px",
+				h = (r_outer.height - r_inner.height) + "px";
+
+			// Update sizes
+			this.n_content_size.style.marginRight = w;
+			this.n_content_size.style.marginBottom = h;
+		};
+		var page_scroll_set = function (x, y, no_transitions) {
+			this.c_viewer.set_position(x, y);
+			if (no_transitions && this.c_viewer.is_transitioning_position()) this.c_viewer.stop_transitioning_position();
+			page_scrollbars_update_positions.call(this);
+		};
+		var page_scrollbars_ignore_for = function (ms) {
+			var self = this;
+			if (this.n_scrollbars_timeout !== null) clearTimeout(this.n_scrollbars_timeout);
+			this.n_scrollbars_timeout = setTimeout(function () {
+				self.n_scrollbars_timeout = null;
+			}, ms);
+		};
+
+		var sidebar_scroll_state_get_pre = null;
+		var sidebar_scroll_state_get = function () {
+			if (!this.sidebar_enabled) return null;
+			if (sidebar_scroll_state_get_pre !== null) return sidebar_scroll_state_get_pre;
+
+			// Find center-most item
+			var dist = 0,
+				center = 0,
+				state = [ null , null ],
+				d, i, n, r;
+
+			r = this.n_sidebar.getBoundingClientRect();
+			center = (r.top + r.bottom) / 2.0;
+
+			for (i = 0; i < this.pages.length; ++i) {
+				if (!this.pages[i].is_thumbnail_visible()) continue;
+
+				n = this.pages[i].thumbnail_container;
+				r = n.getBoundingClientRect();
+				d = Math.abs(center - (r.top + r.bottom) / 2.0);
+
+				if (state[0] === null || d < dist) {
+					dist = d;
+					state[0] = r;
+					state[1] = n;
+				}
+				else {
+					break;
+				}
+			}
+
+			// Prevent too many reflows
+			if (state[0] === null) return null;
+			sidebar_scroll_state_get_pre = state;
+			setTimeout(function () { sidebar_scroll_state_get_pre = null; }, 10);
+
+			return state;
+		};
+		var sidebar_scroll_state_update = function (state) {
+			if (state === null) return;
+
+			var rect_old = state[0],
+				rect_new = state[1].getBoundingClientRect(),
+				dist = ((rect_old.top + rect_old.bottom) / 2.0 - (rect_new.top + rect_new.bottom) / 2.0);
+
+			this.n_sidebar.scrollTop -= dist;
+		};
+		var sidebar_scroll_to_current = function () {
+			var r = this.page_current.thumbnail_container.getBoundingClientRect(),
+				s_r = this.n_sidebar_size.getBoundingClientRect(),
+				s_r_outer = this.n_sidebar.getBoundingClientRect();
+
+			this.n_sidebar.scrollTop = r.top - s_r.top + (r.height - s_r_outer.height) / 2.0;
+		};
+
+		var on_window_keydown = function (event) {
+			if (!this.visible) return;
+
+			// Stop
+			event.stopPropagation();
+
+			// Get key
+			var key = (event.which || event.keyCode || (event = window.event).keyCode || 0);
+			if (key in this.controls_keyboard) {
+				this.perform_action(this.controls_keyboard[key]);
+			}
+		};
+		var on_window_resize = function () {
+			if (!this.visible) return;
+
+			// Ignore timeout
+			page_scrollbars_ignore_for.call(this, 10);
+
+			// Update top/sidebar
+			if (this.topbar_enabled) update_topbar_size.call(this);
+			if (this.sidebar_enabled) update_sidebar_size.call(this);
+
+			// Update image
+			page_scrollbars_update_sizes.call(this);
+			if (this.page_current !== null) {
+				update_current_page.call(this, true);
+			}
+		}._w();
+		var on_scrollbars_scroll = function () {
+			if (!this.visible || this.n_scrollbars_timeout !== null) return;
+
+			var x = this.n_scrollbars.scrollLeft,
+				y = this.n_scrollbars.scrollTop,
+				size = this.c_viewer.get_scroll_size();
+
+			if (size[0] > 0) x /= size[0];
+			if (size[1] > 0) y /= size[1];
+
+			this.c_viewer.set_position(x, y);
+			if (this.c_viewer.is_transitioning_position()) this.c_viewer.stop_transitioning_position();
+		};
+		var on_window_popstate = function (event) {
+			if (!this.visible) return;
+
+			// Switch page
+			var page_info = API.get_gallery_image_url_info(window.location.href);
+			if (page_info !== null) {
+				if (this.page_current === null || this.page_current.page_id !== page_info.page) {
+					go_to_page_by_id.call(this, page_info.page, URL_DONT_MODIFY);
+				}
+			}
+		};
+
+		var on_thumbnail_pages_get = function (event) {
+			var thumbs = event.data,
+				thumbs_len = thumbs.length,
+				i = 0,
+				t, k;
+
+			for (; i < thumbs_len; ++i) {
+				t = thumbs[i];
+				k = "" + t.index;
+				if (!(k in this.pages_map)) {
+					add_page.call(this, null, t.index);
+				}
+			}
+
+			// Begin auto-loading
+			load_next.call(this, false);
+		};
+
+		var on_page = {
+			image_load: function (page) {
+				if (page === this.page_loading) {
+					load_stop.call(this, false);
+					load_next.call(this, false);
+				}
+			}._w(),
+			image_error: function (page) {
+				if (page === this.page_loading) {
+					load_stop.call(this, false);
+					load_next.call(this, false);
+				}
+			}._w(),
+			page_load: function (page) {
+				console.log("pg lod",page.id);
+
+				if (page === this.page_loading) {
+					// Load the image
+					this.page_loading_waiting = null;
+					this.page_loading.add_image();
+					this.page_loading.load_attempted = true;
+
+					if (this.load_delay_mode === DELAY_MODE_MINIMUM && this.load_delay === null) {
+						set_load_delay_timeout.call(this, DELAY_MODE_MINIMUM);
+					}
+				}
+				else if (page === this.page_loading_waiting) {
+					// this.page_loading === null at this point
+					this.page_loading_waiting = null;
+					if (this.load_delay === null) {
+						set_load_delay_timeout.call(this, DELAY_MODE_MINIMUM);
+					}
+				}
+
+				// Update page loading bounds
+				if (page.id === 0 || page.id === this.pages.length - 1) {
+					update_load_range.call(this);
+				}
+			}._w(),
+			thumbnail_load: function (page) {
+				if (page === this.page_current) {
+					this.thumbnail_getter.set_center(page.thumbnail_data.page);
+				}
+			}._w(),
+			content_change: function (page) {
+				if (page === this.page_current) {
+					update_current_page.call(this, false);
+				}
+			}._w(),
+			state_change: function (page) {
+				if (!page.is_thumbnail_visible() && page.get_state() >= this.thumbnail_show_state) {
+					page.show_thumbnail();
+				}
+			},
+		};
+
+		var load_validate = function (index) {
+			// Out of bounds validation
+			if (index < 0 || index >= this.pages.length) return true;
+
+			var page = this.pages[index],
+				state = page.get_state();
+
+			return (state !== Page.IMAGE_LOADED && (!page.load_attempted || (state === Page.IMAGE_ERROR && this.load_image_from_fallback)));
+		}._w();
+		var load_stop = function (cancel) {
+			this.page_loading = null;
+
+			// Clear timeout
+			if (this.load_delay_mode === DELAY_MODE_FORCED || (cancel && this.load_delay_mode === DELAY_MODE_AUTO)) {
+				clear_load_delay_timeout.call(this);
+			}
+		}._w();
+		var load_set_target = function (page, force_init) {
+			console.log("load_set_target:",page.page_id,this.load_delay_mode,this.page_loading !== null,this.load_page_pindex.index);
+			this.load_page_pindex.set_center(page.id);
+			this.load_page_pindex.set_index(page.id);
+
+			if (page.get_state() !== Page.IMAGE_LOADED && page !== this.page_loading) {
+				load_stop.call(this, true);
+			}
+
+			load_next.call(this, force_init);
+		}._w();
+		var load_next = function (force_init) {
+			// Already active?
+			if (this.load_delay_mode !== DELAY_MODE_NONE || this.page_loading !== null || this.load_page_pindex.update() !== PriorityIndex.FOUND) return;
+
+			var i = this.load_page_pindex.index,
+				load_fallback, p;
+
+			// Get the page
+			if (i < 0) {
+				// Add page to start
+				if ((p = add_page.call(this, null, this.pages[0].page_id - 1)) === null) return;
+				this.page_loading = p;
+				this.load_page_pindex.set_index(this.page_loading.id);
+			}
+			else if (i >= this.pages.length) {
+				// Add page to end
+				if ((p = add_page.call(this, null, this.pages[this.pages.length - 1].page_id + 1)) === null) return;
+				this.page_loading = p;
+				this.load_page_pindex.set_index(this.page_loading.id);
+			}
+			else {
+				// Page already exists
+				this.page_loading = this.pages[this.load_page_pindex.index];
+			}
+
+			load_fallback = (this.page_loading.get_state() === Page.IMAGE_ERROR && !this.page_loading.data_is_fallback);
+
+			// Make sure it has an image
+			if (!load_fallback && this.page_loading.add_image()) {
+				this.page_loading.load_attempted = true;
+				set_load_delay_timeout.call(this, force_init ? DELAY_MODE_MINIMUM : DELAY_MODE_AUTO);
+			}
+			else {
+				// Request the page
+				this.page_loading_waiting = this.page_loading; // Required in case page is switched before the load is completed (else the "timer" never triggers)
+				this.load_delay_mode = DELAY_MODE_MINIMUM;
+				this.page_loading.load_data(load_fallback);
+			}
+		}._w();
+		var set_load_delay_timeout = function (mode) {
+			this.load_delay_mode = mode;
+			this.load_delay = setTimeout(this.load_delay_fn, this.load_delay_times[mode] * 1000);
+		}._w();
+		var clear_load_delay_timeout = function () {
+			this.load_delay_mode = DELAY_MODE_NONE;
+			if (this.load_delay !== null) {
+				clearTimeout(this.load_delay);
+				this.load_delay = null;
+			}
+		}._w();
+		var on_load_delay_timeout = function () {
+			console.log("on_load_delay_timeout",this.load_delay_mode);
+			var mode = this.load_delay_mode;
+			this.load_delay_mode = DELAY_MODE_NONE;
+			this.load_delay = null;
+
+			if (mode === DELAY_MODE_MINIMUM) {
+				// This is the only timeout that is completely un-skippable
+				if (!(
+					this.page_current !== null &&
+					this.page_current !== this.page_loading &&
+					this.page_current.id === this.load_page_pindex.index &&
+					load_validate.call(this, this.load_page_pindex.index)
+				)) {
+					// This next delay will be skipped if the current page is not loaded/loading
+					set_load_delay_timeout.call(this, DELAY_MODE_AUTO);
+					return;
+				}
+			}
+			else if (mode === DELAY_MODE_AUTO) {
+				if (this.page_loading !== null) {
+					// Set another timeout
+					this.load_delay_mode = DELAY_MODE_FORCED;
+					if (this.load_delay_times[DELAY_MODE_FORCED] >= 0) {
+						set_load_delay_timeout.call(this, DELAY_MODE_FORCED);
+					}
+					return;
+				}
+			}
+			else { // if (mode === DELAY_MODE_FORCED) {
+				load_stop.call(this, false);
+			}
+			load_next.call(this, false);
+		}._w();
+
+
+
+		Viewer.prototype = {
+			constructor: Viewer,
+
+			set_visible: function (visible) {
+				if (this.visible === visible) return;
+
+				this.visible = visible;
+				if (visible) {
+					this.n_container.classList.add("eze_multiviewer_visible");
+					document.body.classList.add("eze_multiviewer_visible");
+					on_window_resize.call(this);
+				}
+				else {
+					this.n_container.classList.remove("eze_multiviewer_visible");
+					document.body.classList.remove("eze_multiviewer_visible");
+				}
+			},
+			get_visible: function () {
+				return this.visible;
+			},
+
+			set_topbar_enabled: function (enabled) {
+				this.topbar_enabled = enabled;
+				if (enabled) {
+					this.n_topbar.classList.add("eze_multiviewer_topbar_visible");
+					update_topbar_size.call(this);
+				}
+				else {
+					this.n_topbar.classList.remove("eze_multiviewer_topbar_visible");
+					this.n_content_container.style.marginTop = "";
+					this.n_sidebar.style.marginTop = "";
+				}
+			},
+			get_topbar_enabled: function () {
+				return this.topbar_enabled;
+			},
+
+			set_sidebar_enabled: function (enabled) {
+				this.sidebar_enabled = enabled;
+				if (enabled) {
+					this.n_sidebar.classList.add("eze_multiviewer_sidebar_visible");
+					update_sidebar_size.call(this);
+				}
+				else {
+					this.n_sidebar.classList.remove("eze_multiviewer_sidebar_visible");
+					this.n_sidebar_size.style.width = "";
+					this.n_content_container.style.marginLeft = "";
+					this.n_content_container.style.marginRight = "";
+				}
+			},
+			get_sidebar_enabled: function () {
+				return this.sidebar_enabled;
+			},
+
+			set_sidebar_size: function (size) {
+				this.sidebar_size = size;
+				if (this.sidebar_enabled) update_sidebar_size.call(this);
+			},
+			get_sidebar_size: function () {
+				return this.sidebar_size;
+			},
+
+			set_sidebar_side: function (right) {
+				this.sidebar_on_right = right;
+				if (right) {
+					this.n_sidebar.classList.remove("eze_multiviewer_sidebar_left");
+				}
+				else {
+					this.n_sidebar.classList.add("eze_multiviewer_sidebar_left");
+				}
+				if (this.sidebar_enabled) update_sidebar_size.call(this);
+			},
+			get_sidebar_side: function () {
+				return this.sidebar_on_right;
+			},
+
+			set_scrollbars_enabled: function (enabled) {
+				this.scrollbars_enabled = enabled;
+				if (enabled) {
+					this.n_scrollbars.classList.add("eze_multiviewer_scrollbars_visible");
+				}
+				else {
+					this.n_scrollbars.classList.remove("eze_multiviewer_scrollbars_visible");
+				}
+				page_scrollbars_update_sizes.call(this);
+			},
+			get_scrollbars_enabled: function () {
+				return this.scrollbars_enabled;
+			},
+
+			set_scaling_mode: function (flags) {
+				this.size_flags = flags;
+				if (this.page_current !== null) update_current_page.call(this, false);
+			},
+			get_scaling_mode: function () {
+				return this.size_flags;
+			},
+
+			set_thumbnail_show_state: function (state) {
+				this.thumbnail_show_state = state;
+
+				// Show
+				for (var i = 0, page; i < this.pages.length; ++i) {
+					page = this.pages[i];
+					if (!page.is_thumbnail_visible() && page.get_state() >= this.thumbnail_show_state) {
+						page.show_thumbnail();
+					}
+				}
+			},
+			get_thumbnail_show_state: function () {
+				return this.thumbnail_show_state;
+			},
+
+			set_size_flags: function (flags) {
+				this.size_flags = flags;
+				if (this.page_current !== null) update_current_page.call(this, false);
+			},
+			get_size_flags: function () {
+				return this.size_flags;
+			},
+
+			set_preload_mode: function (priority, range_before, range_after) {
+				this.load_page_pindex.set_priority(priority);
+				this.load_page_pindex.set_range_relative(range_before, range_after);
+			},
+			get_preload_ranges: function () {
+				return this.load_page_pindex.range_relative;
+			},
+			get_preload_priority: function () {
+				return this.load_page_pindex.priority;
+			},
+
+			perform_action: function (args) {
+				// TODO : Also make settings work properly for smooth scrolling/zooming
+				var action = args[0],
+					size, position, x, y;
+				switch (action) {
+					case actions.GOTO_NEXT:
+						this.go_to_next();
+					break;
+					case actions.GOTO_PREVIOUS:
+						this.go_to_previous();
+					break;
+					case actions.GOTO_FIRST:
+						this.go_to_first();
+					break;
+					case actions.GOTO_LAST:
+						this.go_to_last();
+					break;
+					case actions.LOAD_FALLBACK:
+					{
+						// TODO
+					}
+					break;
+					case actions.SCROLL_ADVANCE:
+					{
+						size = this.c_viewer.get_scroll_size();
+						position = this.c_viewer.get_position();
+						x = position[0];
+						y = position[1];
+
+						//if (size[0] > 0) x += this.scroll_size / size[0];
+						if (size[1] > 0) y += this.scroll_size / size[1];
+
+						page_scroll_set.call(this, x, y, false);
+
+						// TODO : Check if complete
+					}
+					break;
+					case actions.SCROLL_BACK:
+					{
+						size = this.c_viewer.get_scroll_size();
+						position = this.c_viewer.get_position();
+						x = position[0];
+						y = position[1];
+
+						//if (size[0] > 0) x += this.scroll_size / size[0];
+						if (size[1] > 0) y -= this.scroll_size / size[1];
+
+						page_scroll_set.call(this, x, y, false);
+
+						// TODO : Check if complete
+					}
+					break;
+					case actions.SCROLL_UP:
+					{
+					}
+					break;
+					case actions.SCROLL_DOWN:
+					{
+					}
+					break;
+					case actions.SCROLL_LEFT:
+					{
+					}
+					break;
+					case actions.SCROLL_RIGHT:
+					{
+					}
+					break;
+					case actions.SCROLL_TOP:
+					{
+					}
+					break;
+					case actions.SCROLL_BOTTOM:
+					{
+					}
+					break;
+					case actions.SCROLL_LEFTMOST:
+					{
+					}
+					break;
+					case actions.SCROLL_RIGHTMOST:
+					{
+					}
+					break;
+					case actions.SCROLL_MIDDLE:
+					{
+					}
+					break;
+					case actions.SCROLL_CENTER:
+					{
+					}
+					break;
+					case actions.ZOOM_IN:
+					{
+					}
+					break;
+					case actions.ZOOM_OUT:
+					{
+					}
+					break;
+					case actions.ZOOM_DEFAULT:
+					{
+					}
+					break;
+					case actions.ZOOM_FIT_WIDTH:
+					{
+					}
+					break;
+					case actions.ZOOM_FIT_HEIGHT:
+					{
+					}
+					break;
+					case actions.TOGGLE_SIDEBAR:
+					{
+					}
+					break;
+					case actions.TOGGLE_TOPBAR:
+					{
+					}
+					break;
+					default:
+						// Shouldn't happen
+						console.log("Invalid action: " + action);
+					break;
+				}
+			},
+
+			go_to_next: function () {
+				var p;
+				if (this.page_current !== null && (p = this.page_current.get_next_page_id()) >= 0) {
+					go_to_page_by_id.call(this, p, URL_PUSH);
+				}
+			},
+			go_to_previous: function () {
+				var p;
+				if (this.page_current !== null && (p = this.page_current.get_previous_page_id()) >= 0) {
+					go_to_page_by_id.call(this, p, URL_PUSH);
+				}
+			},
+			go_to_first: function () {
+				var p;
+				if (this.page_current !== null && (p = this.page_current.get_first_page_id()) != this.page_current.page_id) {
+					go_to_page_by_id.call(this, p, URL_PUSH);
+				}
+			},
+			go_to_last: function () {
+				var p;
+				if (this.page_current !== null && (p = this.page_current.get_last_page_id()) != this.page_current.page_id) {
+					go_to_page_by_id.call(this, p, URL_PUSH);
+				}
+			},
+		};
+
+
+
+		return Viewer;
+
+	})();
+/*</future>*/
+
 	// Script settings
 	var Settings = (function () {
 
@@ -7006,12 +8495,61 @@
 				custom_search_links: true,
 				custom_search_params: {},
 				multiviewer_by_default: false,
+/*<future>*/
+				multiviewer_controls: [
+					[ "D" , true , Viewer.actions.GOTO_NEXT ],
+					[ "RIGHT" , true , Viewer.actions.GOTO_NEXT ],
+					[ "NUMPAD 6" , true , Viewer.actions.GOTO_NEXT ],
+					[ "PAGE UP" , true , Viewer.actions.GOTO_NEXT ],
+					[ "SPACE" , true , Viewer.actions.GOTO_NEXT ],
+					[ "A" , true , Viewer.actions.GOTO_PREVIOUS ],
+					[ "LEFT" , true , Viewer.actions.GOTO_PREVIOUS ],
+					[ "NUMPAD 4" , true , Viewer.actions.GOTO_PREVIOUS ],
+					[ "PAGE DOWN" , true , Viewer.actions.GOTO_PREVIOUS ],
+					[ "W" , true , Viewer.actions.SCROLL_BACK ],
+					[ "UP" , true , Viewer.actions.SCROLL_BACK ],
+					[ "NUMPAD 8" , true , Viewer.actions.SCROLL_BACK ],
+					[ "S" , true , Viewer.actions.SCROLL_ADVANCE ],
+					[ "DOWN" , true , Viewer.actions.SCROLL_ADVANCE ],
+					[ "NUMPAD 2" , true , Viewer.actions.SCROLL_ADVANCE ],
+					[ "E" , true , Viewer.actions.ZOOM_IN ],
+					[ "Q" , true , Viewer.actions.ZOOM_OUT ],
+					[ "MOUSE WHEEL UP" , false , Viewer.actions.SCROLL_BACK ],
+					[ "MOUSE WHEEL DOWN" , false , Viewer.actions.SCROLL_ADVANCE ],
+				],
+				multiviewer_settings: {
+					scrollbars_enabled: true,
+					sidebar_enabled: true,
+					sidebar_on_right: true,
+					sidebar_size: 200,
+					topbar_enabled: true,
+					size_flags: Viewer.SIZE_SHRINK_WIDTH,
+					thumbnail_show_state: Viewer.Page.PAGE_NOT_LOADED,
+					reset_scale_on_change: true,
+					load_thumbnail_priority: PriorityIndex.BALANCED | PriorityIndex.AFTER,
+					load_thumbnail_range_before: 0,
+					load_thumbnail_range_after: 0,
+					load_page_priority: PriorityIndex.BALANCED | PriorityIndex.AFTER,
+					load_page_range_before: 1,
+					load_page_range_after: 2,
+					load_pages_outside_range: true,
+					load_image_from_fallback: true,
+					load_image_max_time_before_error: 30.0,
+					load_delay_time_min: 1.0,
+					load_delay_time_auto: 1.0,
+					load_delay_time_load: 10.0,
+				},
+/*</future>*/
 			};
 			this.validators = {
 				custom_search_front_page: is_boolean,
 				custom_search_links: is_boolean,
 				custom_search_params: is_object_not_null,
 				multiviewer_by_default: is_boolean,
+/*<future>*/
+				multiviewer_controls: is_object_not_null,
+				multiviewer_settings: is_object_not_null,
+/*</future>*/
 			};
 
 			this.uconfig = {
@@ -7623,7 +9161,7 @@
 		}
 	};
 
-	var setup_modifyied_titles = function () {
+	var setup_modified_titles = function () {
 		var re_pattern = /\b(exhentai|e-hentai)/i,
 			nodes, i;
 
@@ -8059,603 +9597,216 @@
 		// Primary setup function
 		var setup_panda = function () {
 			// Setup login
-			new LoginGUI();
+			set_doctype();
+			setup_document();
+			setup_title();
+			setup_stylesheet();
+			setup_dom();
+		}._w();
+
+
+
+		var set_doctype = function () {
+			var new_doctype = document.implementation.createDocumentType(
+				"html",
+				"-//W3C//DTD XHTML 1.0 Transitional//EN",
+				"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtdd"
+			);
+
+			if (document.doctype) {
+				document.replaceChild(new_doctype, document.doctype);
+			}
+			else {
+				document.insertBefore(new_doctype, document.firstChild);
+			}
 		};
+		var setup_document = function () {
+			var doc_el = document.documentElement,
+				head = doc_el.querySelector("head") || document.head || null,
+				body = doc_el.querySelector("body") || document.body || null,
+				meta_charset = $("meta", { charset: "UTF-8" }),
+				n;
 
+			// Create head
+			if (head !== null) {
+				head.innerHTML = "";
+			}
+			else {
+				head = $("head");
+				n = doc_el.firstChild;
+				if (n !== null) {
+					doc_el.insertBefore(head, n);
+				}
+				else {
+					doc_el.appendChild(head);
+				}
+			}
 
+			// Create body
+			if (body === null) {
+				body = $("body");
+				doc_el.appendChild(body);
+			}
 
-		// Forum iframe checking/setup function
-		setup_panda.iframe_setup = null;
+			// Setup head
+			head.appendChild(meta_charset);
+		};
+		var setup_title = function () {
+			var doc_el = document.documentElement,
+				title = $("title"),
+				head = doc_el.querySelector("head"),
+				i, n;
 
-		var setup_panda_forum_origin = null;
-		var setup_panda_forum_auto_run = false;
-		if (window.location.hostname == "forums.e-hentai.org" && eze_hash.path_array[0] == "eze") {
-			// Remove eze url
-			setup_panda_forum_origin = eze_hash.vars.origin || "";
-			setup_panda_forum_auto_run = eze_hash.vars.auto == "true";
-			window.history.replaceState(null, "", window.location.pathname + window.location.search);
+			// Remove titles
+			n = document.querySelectorAll("title");
+			for (i = 0; i < n.length; ++i) {
+				n[i].parentNode.removeChild(n[i]);
+			}
 
-			// Setup function
-			setup_panda.iframe_setup = function () {
-				// Setup
-				var auto_hash = Hash.encode("eze", [
-					[ "origin", setup_panda_forum_origin ],
-					[ "auto", "true" ],
-				]);
+			// Add title
+			head.appendChild(title);
 
-				IframeController = IframeController();
-				new IframeController(setup_panda_forum_origin, setup_panda_forum_auto_run, auto_hash);
+			// Update title
+			update_title(title);
+
+			// Observe
+			var MutationObserver = (window.MutationObserver || window.WebKitMutationObserver);
+			if (MutationObserver) {
+				new MutationObserver(function () {
+					update_title(title);
+				})
+				.observe(title, { childList: true });
+			}
+		};
+		var update_title = function (title) {
+			var text = title.textContent,
+				text_target = "Login Helper";
+
+			// Update title
+			if (text != text_target) {
+				title.textContent = text_target;
+			}
+		};
+		var setup_stylesheet = function () {
+			// Styling
+			var vars = {
+				border: CSS.color("#000000"),
+				bg: CSS.color("#43464e"),
+				bg_dark: CSS.color("#34353b"),
+				bg_light: CSS.color("#4f535b"),
+				text: CSS.color("#f1f1f1"),
+				text_link: CSS.color("#dddddd"),
+				text_link_hover: CSS.color("#fffbdb"),
+				text_error: CSS.color("#ff8080"),
+				text_success: CSS.color("#80ff80"),
 			};
-		}
 
+			// Create css
+			var css = CSS.format(
+/*<compress-string>*/
+				[ //{
+				"body{font-size:10pt;font-family:arial,helvetica,sans-serif;color:{{color:text}};background:{{color:bg_dark}};padding:0;margin:0;}",
+				"a{color:{{color:text_link}};text-decoration:underline;cursor:pointer;}",
+				"a:hover{color:{{color:text_link_hover}};}",
 
+				".eze_main_container{position:absolute;left:0;top:0;bottom:0;right:0;white-space:nowrap;line-height:0;text-align:center;}",
+				".eze_main_container:before{content:\"\";display:inline-block;width:0;height:100%;vertical-align:middle;}",
+				".eze_main{display:inline-block;vertical-align:top;white-space:normal;line-height:normal;text-align:left;margin:2em 0;}",
+				".eze_main.eze_main_middle{vertical-align:middle;}",
+				".eze_main_box{border:1px solid {{color:border}};background-color:{{color:bg}};padding:1em;box-sizing:border-box;-moz-box-sizing:border-box;}",
 
-		var MutationObserver = (window.MutationObserver || window.WebKitMutationObserver);
+				".eze_input_line{display:block;text-align:left;width:20em;box-sizing:border-box;-moz-box-sizing:border-box;}",
+				".eze_input_line+.eze_input_line{margin-top:0.5em;}",
+				".eze_input_line.eze_input_center{text-align:center;}",
+				".eze_input_line_label_text{font-size:1.5em;font-weight:bold;}",
+				].join(""), //}
+/*</compress-string>*/
+				vars
+			);
 
+			// Insert
+			API.inject_style(css);
+		};
+		var setup_dom = function () {
+			var doc_el = document.documentElement,
+				body = document.body,
+				image = doc_el.querySelector("img"),
+				loc = window.location.href,
+				site = "" + window.location.hostname.replace(/\.[^\.]*$/, ""),
+				cookie_poll_interval = null,
+				n0, image_new, link1_container, link1, link2, link3;
 
+			// Find image url
+			if (image !== null) {
+				loc = image.getAttribute("src");
+			}
+			image_new = $("img", "eze_login_image", {
+				src: loc,
+				alt: "",
+			});
 
-		var LoginGUI = function () {
-			var self = this;
+			// Create DOM
+			n0 = $("div", "eze_main_container", [ //{
+				$("div", "eze_main eze_main_middle", [
+					$("div", "eze_main_box", [
+						$("div", "eze_input_line eze_input_center", [
+							image_new,
+						]),
+						$("div", "eze_input_line", [
+							$("span", "eze_input_line_label_text", "Login Instructions:"),
+						]),
+						$("div", "eze_input_line", [
+							link1_container = $("span", "eze_instruction eze_instruction_ready", [
+								$.text("Delete all e-hentai and "),
+								link1 = $("a", null, site, { title: "Click to delete " + site + " cookies" }),
+								$.text(" cookies"),
+							]),
+						]),
+						$("div", "eze_input_line", [
+							link2 = $("a", "eze_instruction", "Go to the homepage and log in", { href: "http://e-hentai.org/", target: "_blank", rel: "noreferrer nofollow" }),
+						]),
+						$("div", "eze_input_line", [
+							link3 = $("a", "eze_instruction", "Refresh the page", { href: "" }),
+						]),
+					]),
+				]),
+			]); //}
 
-			// Vars
-			this.form = null;
-			this.input_name = null;
-			this.input_pass = null;
-			this.status_text = null;
-
-			this.iframe_container = null;
-			this.iframe = null;
-			this.iframe_target_origin = "https://forums.e-hentai.org";
-			this.iframe_target = this.iframe_target_origin + "/index.php?act=Login&CODE=01";
-			this.iframe_loaded = false;
-			this.iframe_state = LoginGUI.STATE_INACTIVE;
-
-			// Setup
-			this.set_doctype();
-			this.setup_document();
-			this.setup_title();
-			this.setup_stylesheet();
-			this.setup_dom();
-
-			// Select
-			setTimeout(function () {
-				self.input_name.select();
-			}, 10);
+			var remove_cookies = function () {
+				Cookies.remove("yay", "/", "." + window.location.hostname);
+			};
 
 			// Events
-			window.addEventListener("message", function (event) {
-				if (event.origin == self.iframe_target_origin) {
-					self.process_message(JSON.parse(event.data));
-				}
-			}, false);
-		};
-		LoginGUI.STATE_INACTIVE = 0;
-		LoginGUI.STATE_ACTIVE = 1;
-		LoginGUI.STATE_LOGGED_IN = 2;
-		LoginGUI.prototype = {
-			constructor: LoginGUI,
+			link1.addEventListener("click", function (event) {
+				if (event.which !== 1) return;
 
-			set_doctype: function () {
-				var new_doctype = document.implementation.createDocumentType(
-					"html",
-					"-//W3C//DTD XHTML 1.0 Transitional//EN",
-					"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtdd"
-				);
+				remove_cookies();
 
-				if (document.doctype) {
-					document.replaceChild(new_doctype, document.doctype);
-				}
-				else {
-					document.insertBefore(new_doctype, document.firstChild);
-				}
-			},
-			setup_document: function () {
-				var doc_el = document.documentElement,
-					head = doc_el.querySelector("head") || document.head || null,
-					body = doc_el.querySelector("body") || document.body || null,
-					meta_charset = $("meta", { charset: "UTF-8" }),
-					n;
+				link1_container.classList.add("eze_instruction_complete");
+				link2.classList.add("eze_instruction_ready");
+				link3.classList.add("eze_instruction_ready");
 
-				// Create head
-				if (head !== null) {
-					head.innerHTML = "";
-				}
-				else {
-					head = $("head");
-					n = doc_el.firstChild;
-					if (n !== null) {
-						doc_el.insertBefore(head, n);
-					}
-					else {
-						doc_el.appendChild(head);
-					}
-				}
-
-				// Create body
-				if (body === null) {
-					body = $("body");
-					doc_el.appendChild(body);
-				}
-
-				// Setup head
-				head.appendChild(meta_charset);
-			},
-			setup_title: function () {
-				var doc_el = document.documentElement,
-					title = $("title"),
-					head = doc_el.querySelector("head"),
-					self = this,
-					i, n;
-
-				// Remove titles
-				n = document.querySelectorAll("title");
-				for (i = 0; i < n.length; ++i) {
-					n[i].parentNode.removeChild(n[i]);
-				}
-
-				// Add title
-				head.appendChild(title);
-
-				// Update title
-				this.update_title(title);
-
-				// Observe
-				if (MutationObserver) {
-					new MutationObserver(function () {
-						self.update_title(title);
-					})
-					.observe(title, { childList: true });
-				}
-			},
-			update_title: function (title) {
-				var text = title.textContent,
-					text_target = "ExHentai Login";
-
-				// Update title
-				if (text != text_target) {
-					title.textContent = text_target;
-				}
-			},
-			setup_stylesheet: function () {
-				// Styling
-				var vars = {
-					border: CSS.color("#000000"),
-					bg: CSS.color("#43464E"),
-					bg_dark: CSS.color("#34353B"),
-					bg_light: CSS.color("#4f535b"),
-					text: CSS.color("#F1F1F1"),
-					text_link: CSS.color("#DDDDDD"),
-					text_link_hover: CSS.color("#FFFBDB"),
-					text_error: CSS.color("#ff8080"),
-					text_success: CSS.color("#80ff80"),
-				};
-
-				// Create css
-				var css = CSS.format(
-					[ //{
-					"body{font-size:10pt;font-family:arial,helvetica,sans-serif;color:{{color:text}};background:{{color:bg_dark}};padding:0;margin:0;}",
-					"a{color:{{color:text_link}};}",
-					"a:hover{color:{{color:text_link_hover}};}",
-					"form{margin:0;padding:0;}",
-
-					".eze_main_container{position:absolute;left:0;top:0;bottom:0;right:0;white-space:nowrap;line-height:0;text-align:center;}",
-					".eze_main_container:before{content:\"\";display:inline-block;width:0;height:100%;vertical-align:middle;}",
-					".eze_main{display:inline-block;vertical-align:top;white-space:normal;line-height:normal;text-align:left;margin:2em 0;}",
-					".eze_main.eze_main_middle{vertical-align:middle;}",
-					".eze_main_box{border:1px solid {{color:border}};background-color:{{color:bg}};padding:1em;box-sizing:border-box;-moz-box-sizing:border-box;}",
-
-					".eze_input_line{display:block;text-align:center;width:20em;box-sizing:border-box;-moz-box-sizing:border-box;}",
-					".eze_input_line:not(.eze_input_line_label)+.eze_input_line{margin-top:0.5em;}",
-					".eze_input_line_label{text-align:left;}",
-					".eze_input_line_label_text{font-size:1.5em;font-weight:bold;}",
-					".eze_input{display:inline-block;vertical-align:middle;border:1px solid {{color:border}};background-color:{{color:bg_light}};color:{{color:text}};padding:0.25em;box-sizing:border-box;-moz-box-sizing:border-box;width:100%;font-size:2em;}",
-					".eze_input_button{display:inline-block;vertical-align:middle;border:1px solid {{color:border}};background-color:{{color:bg_light}};color:{{color:text}};padding:0.25em;box-sizing:border-box;-moz-box-sizing:border-box;width:100%;font-size:1.5em;}",
-					"input{outline:none;}",
-
-					".eze_input_line.eze_status_line{text-align:left;overflow:hidden;}",
-					".eze_status{font-size:1.25em;line-height:1.25em;height:1.25em;display:inline-block;white-space:nowrap;}",
-					".eze_status.eze_status_error{color:{{color:text_error}};}",
-					".eze_status.eze_status_success{color:{{color:text_success}};}",
-
-					".eze_login_iframe{width:0;height:0;visibility:hidden;opacity:0;margin:0;padding:0;border:none;}",
-					].join(""), //}
-					vars
-				);
-
-				// Insert
-				API.inject_style(css);
-			},
-			setup_dom: function () {
-				var doc_el = document.documentElement,
-					body = document.body,
-					image = doc_el.querySelector("img"),
-					loc = window.location.href,
-					n0, image_new;
-
-				// Find image url
-				if (image !== null) {
-					loc = image.getAttribute("src");
-				}
-				image_new = $("img", {
-					src: loc,
-					alt: "",
-				});
-
-				// Create DOM
-				n0 = $("div", "eze_main_container", [ //{
-					$("div", "eze_main eze_main_middle", [
-						this.form = $("form", "eze_main_box", [
-							$("div", "eze_input_line", [
-								image_new,
-							]),
-							$("div", "eze_input_line eze_input_line_label", [
-								$("span", "eze_input_line_label_text", "Username"),
-							]),
-							$("div", "eze_input_line", [
-								this.input_name = $("input", "eze_input", {
-									type: "text",
-									maxlength: 32,
-								}),
-							]),
-							$("div", "eze_input_line eze_input_line_label", [
-								$("span", "eze_input_line_label_text", "Password"),
-							]),
-							$("div", "eze_input_line", [
-								this.input_pass = $("input", "eze_input", {
-									type: "password",
-									maxlength: 32,
-								}),
-							]),
-							$("div", "eze_input_line", [
-								$("input", "eze_input_button", {
-									type: "submit",
-									value: "Log in",
-								}),
-							]),
-							$("div", "eze_input_line eze_status_line", [
-								this.status_text = $("span", "eze_status"),
-							]),
-							this.iframe_container = $("div"),
-						], $.ON, [ "submit", this.on_form_submit, false, [ this ] ]),
-					]),
-				]); //}
-
-				// Replace
-				body.innerHTML = "";
-				body.appendChild(n0);
-			},
-
-			on_form_submit: function (event) {
-				if (this.iframe_state == LoginGUI.STATE_INACTIVE) {
-					// Now active
-					this.iframe_state = LoginGUI.STATE_ACTIVE;
-
-					// Create iframe
-					if (this.iframe === null) {
-						this.iframe = $("iframe", "eze_login_iframe", {
-							src: this.iframe_target + "/" + Hash.encode("eze", { origin: (window.location.protocol + "//" + window.location.host) }),
-						}, $.ON, [ "load", this.on_iframe_load, false, [ this ] ], $.P, this.iframe_container);
-
-						this.set_status("Loading login form...", false);
-					}
-
-					// Check if ready and execute code
-					this.on_iframe_ready();
-				}
-
-				// Stop
 				event.preventDefault();
 				event.stopPropagation();
 				return false;
-			},
-			on_iframe_load: function () {
-				// Iframe has loaded
-				if (!this.iframe_loaded) {
-					this.iframe_loaded = true;
-					this.on_iframe_ready();
-				}
-			},
-			on_iframe_ready: function () {
-				if (!this.iframe_loaded) return;
+			}, false);
+			link3.addEventListener("click", function (event) {
+				if (event.which !== 1) return;
 
-				// Update button
-				this.set_status("Requesting login...", false);
+				remove_cookies(); // just in case
 
-				this.iframe.contentWindow.postMessage(JSON.stringify({
-					method: "eze_request_login",
-					name: this.input_name.value,
-					pass: this.input_pass.value,
-				}), this.iframe_target);
-			},
+				link2.classList.add("eze_instruction_complete");
+				link3.classList.add("eze_instruction_complete");
 
-			set_status: function (message, is_error, is_success) {
-				this.status_text.textContent = message;
-
-				if (is_error) {
-					this.status_text.classList.add("eze_status_error");
-					this.iframe_state = LoginGUI.STATE_INACTIVE;
-				}
-				else {
-					this.status_text.classList.remove("eze_status_error");
-				}
-
-				if (is_success) {
-					this.status_text.classList.add("eze_status_success");
-					this.iframe_state = LoginGUI.STATE_LOGGED_IN;
-				}
-				else {
-					this.status_text.classList.remove("eze_status_success");
-				}
-			},
-
-			process_message: function (msg) {
-				if (msg.method == "eze_request_login_ack") {
-					// Now processing
-					this.set_status("Processing login...", false);
-				}
-				else if (msg.method == "eze_request_login_captcha_required") {
-					// Captcha required
-					this.set_status("Captcha required", true);
-					// May make this work later
-				}
-				else if (msg.method == "eze_login_failed") {
-					// Error
-					this.set_status(msg.reason, true);
-				}
-				else if (msg.method == "eze_login_success") {
-					// Okay
-					this.set_status("Waiting for cookie...", false);
-				}
-				else if (msg.method == "eze_login_cookie") {
-					// Okay
-					if (this.process_cookie(msg.cookie)) {
-						this.set_status(msg.redundant ? "Already logged in - " : "Logged in - ", false, true);
-						this.complete_login();
-					}
-					else {
-						this.set_status("Login cookie not found", true);
-					}
-				}
-			},
-			process_cookie: function (cookie_str) {
-				var cookies = Cookies.get_all(cookie_str),
-					ipb_member_id = cookies.ipb_member_id,
-					ipb_pass_hash = cookies.ipb_pass_hash,
-					d;
-
-				if (ipb_member_id && ipb_pass_hash) {
-					// Create date
-					d = new Date();
-					d = new Date(d.getFullYear() + 1, d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds());
-
-					// Remove this
-					Cookies.remove("yay", "/", ".exhentai.org");
-
-					// Set new
-					Cookies.set("ipb_member_id", ipb_member_id, d, "/", ".exhentai.org");
-					Cookies.set("ipb_pass_hash", ipb_pass_hash, d, "/", ".exhentai.org");
-
-					// Okay
-					return true;
-				}
-
-				// Error
-				return false;
-			},
-
-			complete_login: function () {
-				// Remove iframe
-				if (this.iframe.parentNode !== null) {
-					this.iframe.parentNode.removeChild(this.iframe);
-				}
-
-				// Refresh link
-				this.status_text.appendChild($("a", { href: "." }, "Reload page"));
-
-				// Reload now
+				event.preventDefault();
+				event.stopPropagation();
 				window.location.reload();
-			},
-		};
+				return false;
+			}, false);
 
-
-
-		var IframeController = function () {
-
-			var IframeController = function (origin, auto_run, auto_hash) {
-				this.origin = origin;
-				this.parent_window = null;
-				this.auto_hash = auto_hash;
-
-				// Get parent window
-				try {
-					this.parent_window = parent;
-				}
-				catch (e) {}
-
-				if (this.parent_window !== null) {
-					// Run
-					if (auto_run) {
-						this.auto_send_cookie();
-					}
-					else {
-						// Message listening
-						var self = this;
-						window.addEventListener("message", function (event) {
-							if (event.origin == self.origin) {
-								self.process_message(JSON.parse(event.data));
-							}
-						}, false);
-					}
-				}
-			};
-
-
-
-			IframeController.prototype = {
-				constructor: IframeController,
-
-				send_message: function (data) {
-					// Respond
-					this.parent_window.postMessage(JSON.stringify(data), this.origin);
-				},
-
-				process_message: function (msg) {
-					if (msg.method == "eze_request_login") {
-						// Respond
-						this.send_message({
-							method: "eze_request_login_ack",
-						});
-
-						// Find form
-						var inputs = {
-								"UserName": msg.name,
-								"PassWord": msg.pass,
-							},
-							input_str = "",
-							self = this,
-							i, form, nodes, name, type;
-
-						nodes = document.querySelectorAll("form[action]");
-						for (i = 0; i < nodes.length; ++i) {
-							form = nodes[i];
-							if (form.querySelector("input[name=UserName]") !== null && form.querySelector("input[name=PassWord]") !== null) break;
-						}
-
-						// No form found; invalid
-						if (i >= nodes.length) {
-							self.send_message({
-								method: "eze_login_failed",
-								reason: "No form found",
-							});
-						}
-
-						// Create inputs
-						nodes = form.querySelectorAll("input");
-						for (i = 0; i < nodes.length; ++i) {
-							name = nodes[i].getAttribute("name");
-							if (!name || name in inputs) continue;
-
-							type = nodes[i].getAttribute("type").toLowerCase();
-							if (type == "checkbox" || type == "radio") {
-								if (nodes[i].checked) {
-									inputs[name] = "on";
-								}
-							}
-							else {
-								inputs[name] = nodes[i].value;
-							}
-						}
-
-						// Captcha?
-						if ("recaptcha_challenge_field" in inputs) {
-							if ("captcha" in msg) {
-								// Maybe later
-							}
-							else {
-								this.send_message({
-									method: "eze_request_login_captcha_required",
-									captcha_id: inputs.recaptcha_challenge_field,
-								});
-								return;
-							}
-						}
-
-						// Create input string
-						for (i in inputs) {
-							if (input_str.length > 0) input_str += "&";
-							input_str += encodeURIComponent(i) + "=" + encodeURIComponent("" + inputs[i]);
-						}
-
-						// Create XHR
-						var xhr = new XMLHttpRequest();
-						xhr.open("POST", form.getAttribute("action"), true);
-						xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-						xhr.responseType = "document";
-
-						xhr.addEventListener("load", function () {
-							if (xhr.status == 200) {
-								// Process
-								self.process_response(xhr.response);
-							}
-							else {
-								// Status error
-								self.send_message({
-									method: "eze_login_failed",
-									reason: "Status: " + xhr.status + " - " + xhr.statusText,
-								});
-							}
-						}, false);
-						xhr.addEventListener("error", function () {
-							// XHR error
-							self.send_message({
-								method: "eze_login_failed",
-								reason: "Error",
-							});
-						}, false);
-
-						// Send
-						xhr.send(input_str);
-					}
-				},
-
-				process_response: function (html) {
-					var n;
-					if ((n = html.querySelector("#userlinks>.home")) !== null) {
-						// Okay
-						this.send_message({
-							method: "eze_login_cookie",
-							cookie: document.cookie,
-							redundant: true,
-						});
-					}
-					else if ((n = html.querySelector("#redirectwrap")) !== null) {
-						// Okay
-						this.send_message({
-							method: "eze_login_success",
-						});
-
-						// Refresh window
-						this.refresh_window();
-					}
-					else if ((n = html.querySelector(".errorwrap>p")) !== null) {
-						// Login error
-						this.send_message({
-							method: "eze_login_failed",
-							reason: n.textContent,
-						});
-					}
-					else {
-						// Login error
-						this.send_message({
-							method: "eze_login_failed",
-							reason: "Login failed",
-						});
-					}
-				},
-
-				refresh_window: function () {
-					// Update hash
-					window.location.hash = this.auto_hash;
-
-					// Reload
-					window.location.reload();
-				},
-
-				auto_send_cookie: function () {
-					// Okay
-					this.send_message({
-						method: "eze_login_cookie",
-						cookie: document.cookie,
-						redundant: false,
-					});
-				},
-
-			};
-
-
-
-			return IframeController;
-
+			// Replace
+			body.innerHTML = "";
+			body.appendChild(n0);
 		};
 
 
@@ -8820,6 +9971,44 @@
 
 	})();
 
+/*<future>*/
+	var setup_image = (function () {
+
+		var setup_image = function () {
+			h_nav.on_change(on_hash_change);
+		};
+
+
+
+		var viewer = null;
+
+		var on_hash_change = function (h) {
+			if (h.path_array.length < 2 || h.path_array[0] !== "eze" || h.path_array[1] !== "view") {
+				if (viewer !== null) {
+					viewer.set_visible(false);
+				}
+			}
+			else {
+				if (viewer === null) {
+					// Remove the inline script's replaced history state (and data)
+					setTimeout(function () {
+						window.history.replaceState(null, "", window.location.href);
+					}, 100);
+
+					viewer = new Viewer(document.body);
+				}
+				else {
+					viewer.set_visible(true);
+				}
+			}
+		};
+
+
+
+		return setup_image;
+
+	})();
+/*</future>*/
 
 
 	// Init
@@ -8827,13 +10016,6 @@
 	var h_nav = new Hash();
 	setup_before_ready();
 	on_ready(function () {
-		// Forums
-		if (setup_panda.iframe_setup !== null) {
-			// Login support
-			setup_panda.iframe_setup();
-			return;
-		}
-
 		// Page check
 		var page_type = API.get_page_type_from_html(document.documentElement);
 		if (page_type === null) return; // Don't do anything
@@ -8845,7 +10027,7 @@
 		else {
 			// Styling
 			insert_stylesheet();
-			setup_modifyied_titles();
+			setup_modified_titles();
 			setup_custom_settings_link();
 
 			if (page_type == "search" || page_type == "favorites") {
@@ -8859,6 +10041,11 @@
 			}
 			else if (page_type == "settings") {
 				setup_settings();
+			}
+			else if (page_type == "image") {
+/*<future>*/
+				setup_image();
+/*</future>*/
 			}
 		}
 
