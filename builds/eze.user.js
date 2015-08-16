@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.6
+// @version     1.0.6.1
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -2248,6 +2248,12 @@
 			};
 		};
 
+		var set_inner_html_no_loading = function (node, inner_html) {
+			// Don't allow the creation of <img> tags, as they will try to load immediately
+			inner_html = inner_html.replace(/<img /ig, '<input data-eze-tag="img" ');
+			node.innerHTML = inner_html;
+		};
+
 		var api_site = (window.location.hostname == "exhentai.org") ? "exhentai" : "e-hentai";
 
 
@@ -2754,9 +2760,9 @@
 				data.gallery.gid = json.gid;
 				data.gallery.token = json.token;
 
-				div.innerHTML = json.title; // Replace special &#...; chars
+				set_inner_html_no_loading(div, json.title); // Replace special &#...; chars
 				data.title = div.textContent;
-				div.innerHTML = json.title_jpn;
+				set_inner_html_no_loading(div, json.title_jpn);
 				data.title_original = div.textContent;
 
 				data.image_count = parseInt(json.filecount, 10);
@@ -3036,7 +3042,7 @@
 				data.image.height = parseInt(json.y, 10) || 0;
 
 				// Get info
-				div.innerHTML = json.i || "";
+				set_inner_html_no_loading(div, json.i || "");
 				re = /(.*?)\s*::\s*(\d+)\s*x\s*(\d+)\s*::\s*([\d\.]+)\s*(\w+)$/i;
 				if (
 					(n = div.querySelector("div")) !== null &&
@@ -3050,7 +3056,7 @@
 				}
 
 				// Get image
-				div.innerHTML = json.i3 || "";
+				set_inner_html_no_loading(div, json.i3 || "");
 				if ((n = div.querySelector("#img")) !== null) {
 					data.image.url = n.getAttribute("src") || "";
 				}
@@ -3059,7 +3065,7 @@
 				}
 
 				// Get pages
-				div.innerHTML = json.n;
+				set_inner_html_no_loading(div, json.n);
 				if ((n = div.querySelectorAll(".sn>div>span")).length >= 2) {
 					data.page_count = parseInt(n[1].textContent.trim(), 10) || 0;
 				}
@@ -3099,7 +3105,7 @@
 				}
 
 				// Gallery
-				div.innerHTML = json.i5;
+				set_inner_html_no_loading(div, json.i5);
 				if (
 					(n = div.querySelector(".sb>a")) !== null &&
 					(info = API.get_gallery_url_info(n.getAttribute("href") || "")) !== null
@@ -3113,7 +3119,7 @@
 
 				// Original image
 				if (json.i7) {
-					div.innerHTML = json.i7;
+					set_inner_html_no_loading(div, json.i7);
 					re = /(\d+)\s*x\s*(\d+)\s+([\d\.]+)\s*(\w+)/i;
 					if (
 						(n = div.querySelector("a")) !== null &&
@@ -7571,7 +7577,6 @@
 				image = doc_el.querySelector("img"),
 				loc = window.location.href,
 				site = "" + window.location.hostname.replace(/\.[^\.]*$/, ""),
-				cookie_poll_interval = null,
 				n0, image_new, link1_container, link1, link2, link3;
 
 			// Find image url
