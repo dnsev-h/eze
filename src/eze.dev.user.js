@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze (dev)
-// @version        1.0.6.1
+// @version        1.0.7
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -2129,7 +2129,7 @@
 
 	})();
 
-/*<future>*/
+/*<feature:future>*/
 	// Dynamic content viewing
 	var ContentViewer = (function () {
 
@@ -2319,9 +2319,9 @@
 		return ContentViewer;
 
 	})();
-/*</future>*/
+/*</feature:future>*/
 
-/*<future>*/
+/*<feature:future>*/
 	// Priority array indexer
 	var PriorityIndex = (function () {
 
@@ -2460,7 +2460,7 @@
 		return PriorityIndex;
 
 	})();
-/*</future>*/
+/*</feature:future>*/
 
 	// Generic event functions
 	var Events = (function () {
@@ -2521,7 +2521,7 @@
 
 	})();
 
-/*<future>*/
+/*<feature:future>*/
 	// Keyboard key names
 	var Keys = (function () {
 
@@ -2579,7 +2579,7 @@
 		return Keys;
 
 	})();
-/*</future>*/
+/*</feature:future>*/
 
 
 
@@ -4582,7 +4582,7 @@
 
 	})();
 
-/*<future>*/
+/*<feature:future>*/
 	// Thumbnail acquiring
 	var ThumbnailGetter = (function () {
 
@@ -4778,7 +4778,7 @@
 		return ThumbnailGetter;
 
 	})();
-/*</future>*/
+/*</feature:future>*/
 
 	// Gallery downloader
 	var GalleryDownloader = (function () {
@@ -4812,6 +4812,7 @@
 			this.request_image.retry_max = 2;
 
 			this.use_full_images = true;
+			this.allow_fallback_if_using_full_images = true;
 
 			this.request_progress = 0.0;
 
@@ -5032,7 +5033,7 @@
 			// Check if it's in a range
 			for (var i = 0, r; i < this.image_ranges.length; ++i) {
 				r = this.image_ranges[i];
-				if (image_id  >= r[0] && image_id <= r[1]) return true;
+				if (image_id >= r[0] && image_id <= r[1]) return true;
 			}
 
 			// Wasn't in any range
@@ -5185,7 +5186,7 @@
 				i = this.images[req.index - 1].info;
 
 				// Set
-				if (i.navigation.key_next) {
+				if (i.navigation.key_next && this.images[req.index].image_id === i.page + 1) {
 					gid = i.gallery.gid;
 					key = i.navigation.key_next;
 					page = i.page + 1;
@@ -5276,7 +5277,14 @@
 			if (image_data.info === null) return;
 
 			// Acquire method
-			if (try_index === 0) {
+			if (
+				try_index === 0 ||
+				(
+					use_full &&
+					!this.allow_fallback_if_using_full_images &&
+					image_data.info.image_original !== null
+				)
+			) {
 				// Get the primary image
 				if (use_full) {
 					if (image_data.info.image_original === null) {
@@ -5514,6 +5522,12 @@
 			set_use_full_images: function (use_full) {
 				this.use_full_images = use_full;
 			},
+			get_allow_fallback_if_using_full_images: function () {
+				return this.allow_fallback_if_using_full_images;
+			},
+			set_allow_fallback_if_using_full_images: function (allow) {
+				this.allow_fallback_if_using_full_images = allow;
+			},
 
 			get_state: function () {
 				return this.state;
@@ -5713,6 +5727,7 @@
 			this.node_zip_info_json_name = null;
 
 			this.node_full_image_checkbox = null;
+			this.node_non_full_image_fallback = null;
 
 			this.node_failure_timeout = null;
 			this.node_failure_retry_max = null;
@@ -5866,7 +5881,12 @@
 							$("div", "eze_dl_setting_cell", [
 								$("label", "eze_dl_label", [
 									this.node_full_image_checkbox = $("input", { type: "checkbox" }),
-									$("span", null, "Download full sized images if available"),
+									$("span", null, "Download full-sized images if available"),
+								]),
+								$("br"),
+								$("label", "eze_dl_label", [
+									this.node_non_full_image_fallback = $("input", { type: "checkbox" }),
+									$("span", null, "Allow non-full-sized images to be downloaded if a timeout error occurs"),
 								]),
 							]),
 						]),
@@ -5896,12 +5916,14 @@
 			this.node_failure_timeout.value = this.loader.get_request_timeout();
 			this.node_failure_retry_max.value = this.loader.get_image_max_retry_count();
 			this.node_full_image_checkbox.checked = this.loader.get_use_full_images();
+			this.node_non_full_image_fallback.checked = this.loader.get_allow_fallback_if_using_full_images();
 			this.node_zip_info_json_name.value = this.zip_info_json_name;
 			this.node_file_ranges.value = this.loader.get_image_ranges();
 
 			// Setup events
 			this.node_main_link.addEventListener("click", bind(on_main_link_click, this));
 			this.node_full_image_checkbox.addEventListener("change", bind(on_option_full_images_change, this));
+			this.node_non_full_image_fallback.addEventListener("change", bind(on_option_non_full_image_fallback_change, this));
 			this.node_failure_timeout.addEventListener("change", bind(on_option_failure_timeout_change, this));
 			this.node_failure_retry_max.addEventListener("change", bind(on_option_failure_retry_max_change, this));
 			this.node_zip_info_json_name.addEventListener("change", bind(on_option_zip_info_json_name_change, this));
@@ -5977,6 +5999,7 @@
 				zip_info_json_name: this.zip_info_json_name,
 				zip_info_json_mode: this.zip_info_json_mode,
 				use_full_images: this.loader.get_use_full_images(),
+				allow_fallback_if_using_full_images: this.loader.get_allow_fallback_if_using_full_images(),
 				request_timeout: this.loader.get_request_timeout(),
 				image_max_retry_count: this.loader.get_image_max_retry_count(),
 			});
@@ -6015,6 +6038,10 @@
 					if ("use_full_images" in value) {
 						self.loader.set_use_full_images(!!value.use_full_images);
 						self.node_full_image_checkbox.checked = self.loader.get_use_full_images();
+					}
+					if ("allow_fallback_if_using_full_images" in value) {
+						self.loader.set_allow_fallback_if_using_full_images(!!value.allow_fallback_if_using_full_images);
+						self.node_non_full_image_fallback.checked = self.loader.get_allow_fallback_if_using_full_images();
 					}
 					if ("request_timeout" in value) {
 						self.loader.set_request_timeout(value.request_timeout);
@@ -6590,6 +6617,19 @@
 			// Save
 			save_values.call(this);
 		};
+		var on_option_non_full_image_fallback_change = function () {
+			var node = this.node_non_full_image_fallback,
+				value = node.checked;
+
+			// Set
+			this.loader.set_allow_fallback_if_using_full_images(value);
+
+			// Update
+			node.checked = this.loader.get_allow_fallback_if_using_full_images();
+
+			// Save
+			save_values.call(this);
+		};
 		var on_option_failure_timeout_change = function () {
 			var node = this.node_failure_timeout,
 				value, m;
@@ -7013,7 +7053,7 @@
 
 	})();
 
-/*<future>*/
+/*<feature:future>*/
 	// Gallery viewer
 	var Viewer = (function () {
 
@@ -8500,7 +8540,7 @@
 		return Viewer;
 
 	})();
-/*</future>*/
+/*</feature:future>*/
 
 	// Script settings
 	var Settings = (function () {
@@ -8512,7 +8552,7 @@
 				custom_search_links: true,
 				custom_search_params: {},
 				multiviewer_by_default: false,
-/*<future>*/
+/*<feature:future>*/
 				multiviewer_controls: [
 					[ "D" , true , Viewer.actions.GOTO_NEXT ],
 					[ "RIGHT" , true , Viewer.actions.GOTO_NEXT ],
@@ -8556,17 +8596,17 @@
 					load_delay_time_auto: 1.0,
 					load_delay_time_load: 10.0,
 				},
-/*</future>*/
+/*</feature:future>*/
 			};
 			this.validators = {
 				custom_search_front_page: is_boolean,
 				custom_search_links: is_boolean,
 				custom_search_params: is_object_not_null,
 				multiviewer_by_default: is_boolean,
-/*<future>*/
+/*<feature:future>*/
 				multiviewer_controls: is_object_not_null,
 				multiviewer_settings: is_object_not_null,
-/*</future>*/
+/*</feature:future>*/
 			};
 
 			this.uconfig = {
@@ -8815,7 +8855,6 @@
 
 		// Create css
 		css = CSS.format(
-/*<compress-string>*/
 			[ //{
 			".id1:not(.e-Highlighted):not(.e-Filtered)>.id2{overflow:visible;position:relative;}",
 			".id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2{z-index:1;}",
@@ -8914,7 +8953,7 @@
 			".eze_menu_option:hover{background-color:{{color:bg_dark}};}",
 
 			".eze_settings_container:not(.eze_settings_container_visible){display:none;}",
-			".eze_settings_container.eze_settings_container_visible+.stuffbox{display:none;}",
+			".eze_settings_container.eze_settings_container_visible~.stuffbox{display:none;}",
 			".eze_settings_box{font-size:1.2em;text-align:center;margin:5px auto;width:700px;padding:5px;text-align:left;border:1px solid {{color:border}};background-color:{{color:bg_light}};}",
 			".eze_settings_header{margin:0 0 0.25em;padding:0;font-size:2em;}",
 			".eze_settings_entry_container{}",
@@ -8978,7 +9017,6 @@
 			".eze_multiviewer_thumb.eze_multiviewer_thumb_viewing[data-eze-state]>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}",
 			".eze_multiviewer_thumb[data-eze-state]:hover>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}",
 			].join(""), //}
-/*</compress-string>*/
 			vars
 		);
 
@@ -9024,16 +9062,20 @@
 				],
 			},
 			{
-				title: "Search on nhentai.net",
+				title: "Search on external websites",
 				primary: 0,
 				links: [
 					{
-						title: "Search by name",
+						title: "nhentai.net - by name",
 						url: "//nhentai.net/search/?q=\"{short}\"",
 					},
 					{
-						title: "Search by exact name",
+						title: "nhentai.net - by exact name",
 						url: "//nhentai.net/search/?q=\"{full}\"",
+					},
+					{
+						title: "hitomi.la - by name",
+						url: "https://hitomi.la/search.html?{short}",
 					},
 				],
 			},
@@ -9720,7 +9762,6 @@
 
 			// Create css
 			var css = CSS.format(
-/*<compress-string>*/
 				[ //{
 				"body{font-size:10pt;font-family:arial,helvetica,sans-serif;color:{{color:text}};background:{{color:bg_dark}};padding:0;margin:0;}",
 				"a{color:{{color:text_link}};text-decoration:underline;cursor:pointer;}",
@@ -9737,7 +9778,6 @@
 				".eze_input_line.eze_input_center{text-align:center;}",
 				".eze_input_line_label_text{font-size:1.5em;font-weight:bold;}",
 				].join(""), //}
-/*</compress-string>*/
 				vars
 			);
 
@@ -9987,7 +10027,7 @@
 
 	})();
 
-/*<future>*/
+/*<feature:future>*/
 	var setup_image = (function () {
 
 		var setup_image = function () {
@@ -10024,7 +10064,7 @@
 		return setup_image;
 
 	})();
-/*</future>*/
+/*</feature:future>*/
 
 
 	// Init
@@ -10059,9 +10099,9 @@
 				setup_settings();
 			}
 			else if (page_type == "image") {
-/*<future>*/
+/*<feature:future>*/
 				setup_image();
-/*</future>*/
+/*</feature:future>*/
 			}
 		}
 

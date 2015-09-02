@@ -27,12 +27,12 @@ while (True):
 	t = p.get_token();
 
 	if (t[0] == Parser.COMMENT_BLOCK):
-		if (t[2] == "/*<debug>*/" or t[2] == "/*<future>*/"):
+		if (t[2] == "/*<debug>*/"):
 			if (add_depth == 0):
 				debug_removals += 1;
 				tokens.append(t[1]);
 			add_depth += 1;
-		elif (t[2] == "/*</debug>*/" or t[2] == "/*</future>*/"):
+		elif (t[2] == "/*</debug>*/"):
 			add_depth -= 1;
 			if (add_depth < 0): add_depth = 0;
 		else:
@@ -46,7 +46,7 @@ while (True):
 			if (t[2] == "_w"):
 				wrap_positions.append(len(tokens) - 3);
 
-	if (t[0] == None): break;
+	if (t[0] is None): break;
 
 
 

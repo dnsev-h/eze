@@ -290,9 +290,16 @@ def main():
 	# Input/output files
 	input = sys.argv[1];
 	output = sys.argv[2];
-	shrink = ("-min" in sys.argv[3:]);
-	meta_only = ("-meta" in sys.argv[3:]);
-	no_separators = ("-nosep" in sys.argv[3:]);
+	argv_remainder = sys.argv[3:];
+	shrink = ("-min" in argv_remainder);
+	meta_only = ("-meta" in argv_remainder);
+	no_separators = ("-nosep" in argv_remainder);
+	dev_replace = "";
+	if ("-version" in argv_remainder):
+		i = argv_remainder.index("-version") + 1;
+		if (i < len(argv_remainder)):
+			dev_replace = argv_remainder[i];
+
 	if (input.lower() == output.lower()):
 		print "Error: input and output scripts cannot be the same";
 		return -1;
@@ -328,7 +335,7 @@ def main():
 		if (key != "require"):
 			# Remove "(dev)" tag from title
 			if (key == "name"):
-				val = re.compile(r"\s*\(dev\)\s*$", re.I).sub("", val);
+				val = re.compile(r"\s*\(dev\)\s*$", re.I).sub(dev_replace, val);
 			out.write("// @" + key + (" " * (padding - len(key))) + val + newline);
 		else:
 			requires.append(val.rsplit("/", 1)[-1]);
