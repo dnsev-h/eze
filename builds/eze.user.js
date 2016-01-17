@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.7
+// @version     1.0.7.1
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -4641,15 +4641,18 @@
 				// Get the primary image
 				if (use_full) {
 					if (image_data.info.image_original === null) {
+						
 						using_data = image_data.info.image;
 						using_method = GalleryDownloader.IMAGE_UNRESIZED;
 					}
 					else {
+						
 						using_data = image_data.info.image_original;
 						using_method = GalleryDownloader.IMAGE_FULL;
 					}
 				}
 				else {
+					
 					using_data = image_data.info.image;
 					using_method = (image_data.info.image_original === null) ? GalleryDownloader.IMAGE_UNRESIZED : GalleryDownloader.IMAGE_RESIZED;
 				}
@@ -4657,15 +4660,18 @@
 			else {
 				if (use_full && try_index <= (image_data.info.image_original === null ? 0 : 1)) {
 					// Get the resized image
+					
 					using_data = image_data.info.image;
 					using_method = GalleryDownloader.IMAGE_RESIZED;
 				}
 				else if (image_data.info_fallback !== null) {
 					// Get the fallback image
+					
 					using_data = image_data.info_fallback.image;
 					using_method = GalleryDownloader.IMAGE_FALLBACK;
 				}
 				// Else, get the fallback page
+
 			}
 
 			// Get
@@ -6984,7 +6990,7 @@
 		var setup_gallery = function () {
 			var gal_info = API.get_gallery_info_from_html(document.documentElement);
 
-			fix_tags();
+			//fix_tags();
 			if (gal_info !== null) {
 				insert_custom(gal_info);
 				recreate_favorite_link(gal_info.gallery);
@@ -7665,6 +7671,7 @@
 	})();
 
 
+
 	// Init
 	var settings = new Settings();
 	var h_nav = new Hash();
@@ -7695,8 +7702,6 @@
 			}
 			else if (page_type == "settings") {
 				setup_settings();
-			}
-			else if (page_type == "image") {
 			}
 		}
 
