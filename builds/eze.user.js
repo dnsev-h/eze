@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.7.2
+// @version     1.0.7.3
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -23,8 +23,12 @@
 
 
 // Main scope
-(function () {
+(function (window) {
 	"use strict";
+
+	// Tampermonkey bug fix
+	if (window.document === undefined) window = window.unsafeWindow;
+	var document = window.document;
 
 
 
@@ -7713,6 +7717,6 @@
 		h_nav.init();
 	});
 
-})();
+})(window);
 
 
