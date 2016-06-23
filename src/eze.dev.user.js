@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze (dev)
-// @version        1.0.7.3
+// @version        1.0.7.4
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -2423,19 +2423,28 @@
 
 					// Get
 					var path = match[1].replace(/^\/+|\/+$/g, "").replace(/\/{2,}/g, "/").split("/");
-					if (path[0] != "g") return null; // invalid
+					if (path[0] === "g") {
+						if (path.length < 3) return null;
 
-					if (path.length >= 3) {
 						// Good
 						data.gid = parseInt(path[1], 10);
 						data.token = path[2];
-					}
 
-					// Page
-					if (match[2]) {
-						if ((match = /[\?\&]p=(\d+)/.exec(match[2]))) {
-							data.page = parseInt(match[1], 10);
+						// Page
+						if (match[2]) {
+							if ((match = /[\?\&]p=(\d+)/.exec(match[2]))) {
+								data.page = parseInt(match[1], 10);
+							}
 						}
+					}
+					/*else if (path[0] === "s") {
+						if (path.length < 3) return null;
+
+						data.token = path[1];
+						data.gid = parseInt(path[2].split("-")[0], 10);
+					}*/
+					else {
+						return null;
 					}
 
 					// Done
@@ -3635,7 +3644,7 @@
 					search = page_part;
 				}
 				else {
-					search = m[2].substr(1).replace(new RegExp("(^|&)" + page_key + "=[^&]*/", "g"), function (full, prefix) {
+					search = m[2].substr(1).replace(new RegExp("(^|&)" + page_key + "=[^&]*", "g"), function (full, prefix) {
 						found = true;
 						return prefix + page_part;
 					});
@@ -7167,7 +7176,7 @@
 
 			// Make favorites classes clickable (WHY: onclick="document.location='http://exhentai.org/favorites.php?favcat='")
 			if (page_type === "favorites") {
-				nodes = document.querySelectorAll(".fp");
+				nodes = document.querySelectorAll("div.fp");
 				for (i = 0; i < nodes.length; ++i) {
 					n1 = nodes[i];
 					if ((m = /document\s*\.\s*location\s*=\s*'([^']*)'/.exec(n1.getAttribute("onclick") || "")) !== null) {
