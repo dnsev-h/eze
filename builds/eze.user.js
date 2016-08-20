@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.8
+// @version     1.0.8.1
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -6437,12 +6437,14 @@
 			this.values = {
 				custom_search_front_page: false,
 				custom_search_links: true,
+				custom_search_form: true,
 				custom_search_params: {},
 				multiviewer_by_default: false,
 			};
 			this.validators = {
 				custom_search_front_page: is_boolean,
 				custom_search_links: is_boolean,
+				custom_search_form: is_boolean,
 				custom_search_params: is_object_not_null,
 				multiviewer_by_default: is_boolean,
 			};
@@ -6885,12 +6887,20 @@
 
 		if (settings.get("custom_search_front_page")) {
 			// Check for auto-search redirect
-			if (window.location.pathname == "/" && window.location.search === "" && window.location.hash === "" && window.history.length <= 1) {
-				var url = modify_search_url(window.location.href);
-				if (url != window.location.href) {
-					window.stop();
-					window.history.replaceState(null, "", url);
-					window.location.reload();
+			var key = "custom_search_front_page_redirected";
+			if (window.sessionStorage) {
+				if (!window.sessionStorage[key]) {
+					if (window.location.pathname == "/" && window.location.search === "" && window.location.hash === "") {
+						window.sessionStorage[key] = true;
+						if (window.sessionStorage[key]) {
+							var url = modify_search_url(window.location.href);
+							if (url !== window.location.href) {
+								window.stop();
+								window.history.replaceState(null, "", url);
+								window.location.reload();
+							}
+						}
+					}
 				}
 			}
 		}
@@ -6967,6 +6977,9 @@
 				}
 			}
 
+			// Setup custom search
+			setup_custom_search();
+
 			// Setup navigation
 			h_nav.on_change(on_hash_change);
 		};
@@ -6994,6 +7007,61 @@
 						r = results[g_id];
 
 					window.location.href = "/g/" + r.gallery.gid + "/" + r.gallery.token;
+				}
+			}
+		};
+
+		var setup_custom_search = function () {
+			if (settings.get("custom_search_form")) {
+				var params = settings.get("custom_search_params");
+				if (params !== null && typeof(params) === "object") {
+					var n = document.querySelector("#advdiv");
+					if (n !== null) {
+						var n2 = null;
+						var ns = document.querySelectorAll(".nopm>a[onclick]");
+						for (var i = 0; i < ns.length; ++i) {
+							if (ns[i].getAttribute("onclick").indexOf("toggle_advsearch_pane") >= 0) {
+								n2 = ns[i];
+								break;
+							}
+						}
+
+						if (n2 !== null && n.style.display === "none") {
+							var s = n2.textContent;
+							n2.click();
+							n2.textContent = s;
+
+							s = n2.getAttribute("onclick");
+							n2.removeAttribute("onclick");
+							n2.addEventListener("click", function (event) {
+								var n = document.querySelector("#advdiv");
+								if (n.innerHTML.length > 0 && n.style.display === "none") {
+									this.textContent = "Hide Advanced Options";
+									n.style.display = "";
+									event.preventDefault();
+									event.stopImmediatePropagation();
+									return false;
+								}
+							}, false);
+							n2.setAttribute("onclick", s);
+
+							n.style.display = "none";
+
+							for (var k in params) {
+								n2 = n.querySelector("[name='" + k + "']");
+								if (n2 !== null) {
+									if (n2.tagName === "INPUT") {
+										if (n2.type === "checkbox") {
+											n2.checked = (params[k] === "on");
+										}
+									}
+									else if (n2.tagName === "SELECT") {
+										n2.value = params[k];
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 		};
@@ -7594,6 +7662,12 @@
 						$("label", "eze_settings_label", [
 							$("input", { type: "checkbox" }, $.ON, [ "change", on_checkbox_change, false, [ $.node, "custom_search_links" ] ], $.CHECKED, settings.get("custom_search_links")),
 							$("strong", null, "Apply these settings to custom search links"),
+						]),
+					]),
+					$("div", "eze_settings_entry", [
+						$("label", "eze_settings_label", [
+							$("input", { type: "checkbox" }, $.ON, [ "change", on_checkbox_change, false, [ $.node, "custom_search_form" ] ], $.CHECKED, settings.get("custom_search_form")),
+							$("strong", null, "Apply these settings to the search form"),
 						]),
 					]),
 					create_search_setting("Search gallery descriptions", "f_sdesc", "on"),
