@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze (dev)
-// @version        1.0.7.4
+// @version        1.0.8
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -1545,6 +1545,7 @@
 
 				// Send
 				if (data !== null) xhr_data.data = data;
+				/*<debug>*/debug_log("GM_xmlhttpRequest", xhr_data);/*</debug>*/
 				xhr = GM_xmlhttpRequest(xhr_data);
 			}
 			else {
@@ -1625,9 +1626,11 @@
 
 				// Send
 				if (data === null) {
+					/*<debug>*/debug_log("XMLHttpRequest", method, url, xhr);/*</debug>*/
 					xhr.send();
 				}
 				else {
+					/*<debug>*/debug_log("XMLHttpRequest", method, url, xhr, data);/*</debug>*/
 					xhr.send(data);
 				}
 			}
@@ -2318,6 +2321,11 @@
 
 		var api_site = (window.location.hostname == "exhentai.org") ? "exhentai" : "e-hentai";
 
+		var get_direct_id = function (str) {
+			var m = /return\s+nl\s*\(\s*['"]([^']*)['"]\s*\)/.exec(str);
+			return (m === null ? null : m[1]);
+		};
+		
 
 
 		var API = {
@@ -2963,21 +2971,11 @@
 							data.navigation.api_key = page_vars.showkey;
 							okay = true;
 						}
-						if ("si" in page_vars) {
-							data.navigation.direct_id = page_vars.si || null;
-							okay = true;
-						}
 					}
 				}
 				if (data.navigation.direct_id === null) {
-					if ((n = html.querySelectorAll("a[onclick]")).length > 0) {
-						re = /^\s*return\s+nl\s*\(\s*(\d+)\s*\)\s*$/;
-						for (i = 0; i < n.length; ++i) {
-							if ((m = re.exec(n[i].getAttribute("onclick") || ""))) {
-								data.navigation.direct_id = parseInt(m[1], 10);
-								break;
-							}
-						}
+					if ((n = html.querySelector("#loadfail[onclick]")) !== null) {
+						data.navigation.direct_id = get_direct_id(n.getAttribute("onclick"));
 					}
 				}
 
@@ -3107,7 +3105,6 @@
 				// Basic info
 				data.page = (json.p || 1) - 1;
 				data.navigation.key_current = json.k || "";
-				data.navigation.direct_id = json.si || 0;
 
 				data.image.width = parseInt(json.x, 10) || 0;
 				data.image.height = parseInt(json.y, 10) || 0;
@@ -3204,6 +3201,9 @@
 						};
 					}
 				}
+
+				// Direct ID
+				data.navigation.direct_id = get_direct_id(json.i6 || "");
 
 				// Invalid
 				return data;
