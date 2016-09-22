@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze (dev)
-// @version        1.0.8.1
+// @version        1.0.8.2
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -774,10 +774,15 @@
 			writer.write_ushort(this.comment_data.length); // Comment length
 		};
 
+		var arraybuffer_to_blob = function (arraybuffer) {
+			return new Blob([ arraybuffer ], { type: "application/zip" });
+		};
+
 
 
 		ZipCreator.array_to_string = array_to_string;
 		ZipCreator.string_to_array = string_to_array;
+		ZipCreator.arraybuffer_to_blob = arraybuffer_to_blob;
 
 
 
@@ -1245,7 +1250,7 @@
 			save.userscript = {
 				get: function (key, callback) {
 					// Get value
-					var val = GM_getValue(key, undefined);
+					var val = GM_getValue(key, undefined); // jshint ignore:line
 					try {
 						val = JSON.parse(val);
 					}
@@ -1256,7 +1261,7 @@
 					// Set value
 					var okay = true;
 					try {
-						GM_setValue(key, JSON.stringify(value));
+						GM_setValue(key, JSON.stringify(value)); // jshint ignore:line
 					}
 					catch (e) {
 						okay = false;
@@ -1265,34 +1270,34 @@
 				},
 				del: function (key, callback) {
 					// Remove
-					GM_deleteValue(key);
+					GM_deleteValue(key); // jshint ignore:line
 					if (callback) callback.call(null, true);
 				},
 				keys: function (callback) {
 					// List keys
-					var keys = GM_listValues();
+					var keys = GM_listValues(); // jshint ignore:line
 					callback.call(null, keys, true);
 				},
 				size: function (callback) {
-					var keys = GM_listValues(),
+					var keys = GM_listValues(), // jshint ignore:line
 						size = 0,
 						i;
 
 					// Create representation
 					for (i = 0; i < keys.length; ++i) {
-						size += object_byte_size(keys[i]) + ((GM_getValue(keys[i], null) || "").length || 0);
+						size += object_byte_size(keys[i]) + ((GM_getValue(keys[i], null) || "").length || 0); // jshint ignore:line
 					}
 
 					// Return
 					callback.call(null, size, true);
 				},
 				clear: function (callback) {
-					var keys = GM_listValues(),
+					var keys = GM_listValues(), // jshint ignore:line
 						i;
 
 					// Create representation
 					for (i = 0; i < keys.length; ++i) {
-						GM_deleteValue(keys[i]);
+						GM_deleteValue(keys[i]); // jshint ignore:line
 					}
 
 					// Return
@@ -1410,7 +1415,7 @@
 				}
 			},
 			arraybuffer: function (text) {
-				var array = new Uint8Array(new ArrayBuffer(text.length)),
+				var array = new Uint8Array(text.length),
 					text_len = text.length,
 					i = 0;
 
@@ -1475,20 +1480,18 @@
 				parser = null;
 
 				// Setup
-				if (options) {
-					if ("response_type" in options) {
-						v = options.response_type;
+				if ("response_type" in options) {
+					v = options.response_type;
 
-						if (v in response_parsers) {
-							parser = response_parsers[v];
-						}
-						if (v == "arraybuffer") {
-							xhr_data.overrideMimeType = "text/plain; charset=x-user-defined";
-						}
+					if (v in response_parsers) {
+						parser = response_parsers[v];
 					}
-					if ("headers" in options) {
-						xhr_data.headers = options.headers;
+					if (v == "arraybuffer") {
+						xhr_data.overrideMimeType = "text/plain; charset=x-user-defined";
 					}
+				}
+				if ("headers" in options) {
+					xhr_data.headers = options.headers;
 				}
 
 				// Events
@@ -1546,7 +1549,7 @@
 				// Send
 				if (data !== null) xhr_data.data = data;
 				/*<debug>*/debug_log("GM_xmlhttpRequest", xhr_data);/*</debug>*/
-				xhr = GM_xmlhttpRequest(xhr_data);
+				xhr = GM_xmlhttpRequest(xhr_data); // jshint ignore:line
 			}
 			else {
 				// Create XHR
@@ -4241,6 +4244,8 @@
 			this.request_timeout = 30.0;
 			this.request_image.retry_max = 2;
 
+			this.max_filename_length = 200;
+
 			this.use_full_images = true;
 			this.allow_fallback_if_using_full_images = true;
 
@@ -4956,6 +4961,13 @@
 				this.request_image.retry_max = Math.max(0, Math.floor(retry_count));
 			},
 
+			get_max_filename_length: function () {
+				return this.max_filename_length;
+			},
+			set_max_filename_length: function (max_length) {
+				this.max_filename_length = Math.max(10, Math.floor(max_length));
+			},
+
 			get_use_full_images: function () {
 				return this.use_full_images;
 			},
@@ -5147,6 +5159,7 @@
 
 			this.node_opts_filename_mode = null;
 			this.node_opts_filename_ext_mode = null;
+			this.node_opts_filename_length = null;
 			this.node_opts_image_naming_mode = null;
 			this.node_opts_zip_info_json_mode = null;
 			this.node_opts_numbering_mode = null;
@@ -5249,14 +5262,20 @@
 								$("div", "eze_dl_setting_desc", "Set the primary output .zip file's name"),
 							]),
 							$("div", "eze_dl_setting_cell", [
-								(this.node_opts_filename_mode = new OptionBox([
-									[ "Full gallery name", constants.MAIN_NAME_FULL ],
-									[ "Short gallery name", constants.MAIN_NAME_SHORT ],
-								], this.filename_mode, bind(on_option_filename_change, this))).node,
-								(this.node_opts_filename_ext_mode = new OptionBox([
-									[ ".zip", constants.FILE_EXTENSION_ZIP ],
-									[ ".cbz", constants.FILE_EXTENSION_CBZ ],
-								], this.filename_ext_mode, bind(on_option_filename_ext_change, this))).node,
+								$("div", [
+									(this.node_opts_filename_mode = new OptionBox([
+										[ "Full gallery name", constants.MAIN_NAME_FULL ],
+										[ "Short gallery name", constants.MAIN_NAME_SHORT ],
+									], this.filename_mode, bind(on_option_filename_change, this))).node,
+									(this.node_opts_filename_ext_mode = new OptionBox([
+										[ ".zip", constants.FILE_EXTENSION_ZIP ],
+										[ ".cbz", constants.FILE_EXTENSION_CBZ ],
+									], this.filename_ext_mode, bind(on_option_filename_ext_change, this))).node,
+								]),
+								$("div", [
+									$("span", null, "Max filename length: "),
+									this.node_opts_filename_length = $("input", "eze_dl_setting_input eze_dl_setting_input_small", { type: "text", title: "Includes extension" }),
+								]),
 							]),
 						]),
 					]),
@@ -5353,6 +5372,7 @@
 			]); //}
 
 			// Setup values
+			this.node_opts_filename_length.value = this.loader.get_max_filename_length();
 			this.node_failure_timeout.value = this.loader.get_request_timeout();
 			this.node_failure_retry_max.value = this.loader.get_image_max_retry_count();
 			this.node_full_image_checkbox.checked = this.loader.get_use_full_images();
@@ -5361,6 +5381,7 @@
 			this.node_file_ranges.value = this.loader.get_image_ranges();
 
 			// Setup events
+			this.node_opts_filename_length.addEventListener("change", bind(on_option_max_filename_length_change, this));
 			this.node_main_link.addEventListener("click", bind(on_main_link_click, this));
 			this.node_full_image_checkbox.addEventListener("change", bind(on_option_full_images_change, this));
 			this.node_non_full_image_fallback.addEventListener("change", bind(on_option_non_full_image_fallback_change, this));
@@ -5442,6 +5463,7 @@
 				allow_fallback_if_using_full_images: this.loader.get_allow_fallback_if_using_full_images(),
 				request_timeout: this.loader.get_request_timeout(),
 				image_max_retry_count: this.loader.get_image_max_retry_count(),
+				max_filename_length: this.loader.get_max_filename_length(),
 			});
 		};
 		var load_values = function () {
@@ -5490,6 +5512,10 @@
 					if ("image_max_retry_count" in value) {
 						self.loader.set_image_max_retry_count(value.image_max_retry_count);
 						self.node_failure_retry_max.value = self.loader.get_image_max_retry_count();
+					}
+					if ("max_filename_length" in value) {
+						self.loader.set_max_filename_length(value.max_filename_length);
+						self.node_opts_filename_length.value = self.loader.get_max_filename_length();
 					}
 				}
 			});
@@ -5767,23 +5793,33 @@
 		var update_final_filename = function () {
 			if (this.zip_blob_url !== null) {
 				// Get name
-				var base_name;
+				var max_len, ext, base_name;
+
+				if (this.filename_ext_mode == constants.FILE_EXTENSION_ZIP) {
+					ext = ".zip";
+				}
+				else { // if (this.filename_ext_mode == constants.FILE_EXTENSION_CBZ) {
+					ext = ".cbz";
+				}
+
 				if (this.filename_mode == constants.MAIN_NAME_FULL) {
 					base_name = filename_normalize.call(this, this.loader.gal_info.title);
 				}
 				else { // if (this.filename_mode == constants.MAIN_NAME_SHORT) {
 					base_name = filename_normalize.call(this, this.loader.gal_title_info.title);
 				}
-
-				if (this.filename_ext_mode == constants.FILE_EXTENSION_ZIP) {
-					base_name += ".zip";
-				}
-				else { // if (this.filename_ext_mode == constants.FILE_EXTENSION_CBZ) {
-					base_name += ".cbz";
+				
+				max_len = Math.max(0, this.loader.get_max_filename_length() - ext.length);
+				if (base_name.length > max_len) {
+					var ellipsis = "";
+					base_name = base_name.substr(0, Math.max(max_len - ellipsis.length)) + ellipsis;
+					if (base_name.length > max_len) {
+						base_name = base_name.substr(0, max_len);
+					}
 				}
 
 				// Apply to link
-				this.node_main_link.setAttribute("download", base_name);
+				this.node_main_link.setAttribute("download", base_name + ext);
 			}
 		};
 		var set_image_naming_mode = function (mode, number_mode) {
@@ -5868,14 +5904,23 @@
 			// Revoke
 			if (this.zip_blob_url !== null) {
 				window.URL.revokeObjectURL(this.zip_blob_url);
+				this.zip_blob = null;
+				this.zip_blob_url = null;
 			}
 
-			// Create
-			this.zip_blob = this.zip.to_blob();
-			this.zip_blob_url = window.URL.createObjectURL(this.zip_blob);
+			try {
+				// Create
+				// this.zip_blob = this.zip.to_blob(); // crashes firefox 49
+				var buffer = this.zip.to_buffer();
+				this.zip_blob = ZipCreator.arraybuffer_to_blob(buffer);
+				this.zip_blob_url = window.URL.createObjectURL(this.zip_blob);
 
-			// Apply link
-			this.node_main_link.setAttribute("href", this.zip_blob_url);
+				// Apply link
+				this.node_main_link.setAttribute("href", this.zip_blob_url);
+			}
+			catch (e) {
+				console.log(e);
+			}
 		};
 		var update_zip_json = function () {
 			// Skip if not done
@@ -6040,6 +6085,24 @@
 
 			// Set
 			update_zip_json.call(this);
+
+			// Save
+			save_values.call(this);
+		};
+		var on_option_max_filename_length_change = function () {
+			var node = this.node_opts_filename_length,
+				value, m;
+
+			if (
+				(m = /^\s*([\d.]+)/.exec(node.value)) &&
+				!isNaN((value = parseFloat(m[1])))
+			) {
+				this.loader.set_max_filename_length(value);
+			}
+
+			// Update display value
+			node.value = this.loader.get_max_filename_length();
+			update_final_filename.call(this);
 
 			// Save
 			save_values.call(this);
