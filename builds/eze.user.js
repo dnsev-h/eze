@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.8.2
+// @version     1.0.8.3
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -534,6 +534,7 @@
 		var BufferWriter = function (buffer) {
 			this.buffer = buffer;
 			this.pos = 0;
+			this.buffers = buffer;
 		};
 		BufferWriter.prototype = {
 			constructor: BufferWriter,
@@ -541,6 +542,10 @@
 			reset: function (buffer) {
 				this.buffer = buffer;
 				this.pos = 0;
+			},
+
+			get_pos: function () {
+				return this.pos;
 			},
 
 			write_ushort: function (value) {
@@ -572,6 +577,73 @@
 			write_string: function (str) {
 				// Write
 				for (var i = 0, len = str.length; i < len; ++i) {
+					this.buffer[this.pos++] = str.charCodeAt(i);
+				}
+			},
+		};
+
+		var MultiBufferWriter = function (total_length, max_segment_length) {
+			max_segment_length = Math.max(1, max_segment_length);
+
+			this.pos = 0;
+			this.pos_offset = 0;
+			this.remaining_length = total_length;
+			this.max_segment_length = max_segment_length;
+
+			this.buffer = new Uint8Array(Math.min(this.remaining_length, this.max_segment_length));
+			this.buffers = [ this.buffer ];
+			this.remaining_length -= this.buffer.length;
+		};
+		MultiBufferWriter.prototype = {
+			constructor: MultiBufferWriter,
+
+			bounds_check: function () {
+				if (this.pos >= this.buffer.length) {
+					this.buffer = new Uint8Array(this.remaining_length <= 0 ? this.max_segment_length : Math.min(this.remaining_length, this.max_segment_length));
+					this.buffers.push(this.buffer);
+					this.remaining_length -= this.buffer.length;
+					this.pos_offset += this.pos;
+					this.pos = 0;
+				}
+			},
+
+			get_pos: function () {
+				return this.pos + this.pos_offset;
+			},
+
+			write_ushort: function (value) {
+				// Bound
+				value = (value & 0x0000FFFF) >>> 0;
+
+				// Write
+				for (var i = 0; i < 2; ++i) {
+					this.bounds_check();
+					this.buffer[this.pos++] = value & 0xFF;
+					value = value >>> 8;
+				}
+			},
+			write_uint: function (value) {
+				// Bound
+				value = (value & 0xFFFFFFFF) >>> 0;
+
+				// Write
+				for (var i = 0; i < 4; ++i) {
+					this.bounds_check();
+					this.buffer[this.pos++] = value & 0xFF;
+					value = value >>> 8;
+				}
+			},
+			write_data: function (data) {
+				// Write
+				for (var i = 0, len = data.length; i < len; ++i) {
+					this.bounds_check();
+					this.buffer[this.pos++] = data[i];
+				}
+			},
+			write_string: function (str) {
+				// Write
+				for (var i = 0, len = str.length; i < len; ++i) {
+					this.bounds_check();
 					this.buffer[this.pos++] = str.charCodeAt(i);
 				}
 			},
@@ -718,6 +790,48 @@
 			return new Blob([ arraybuffer ], { type: "application/zip" });
 		};
 
+		var write_to_buffer = function (bw) {
+			var total_size = this.calculate_size(),
+				file_count = this.files.length,
+				pos_cd, pos_footer, i, f;
+
+			// Write file data
+			for (i = 0; i < file_count; ++i) {
+				f = this.files[i];
+				f.prepare(bw.get_pos());
+
+				// Header
+				bw.write_data(signatures.file); // Signature
+				write_file_header.call(this, bw, f);
+
+				// Data
+				bw.write_data(f.name_data); // Name
+				bw.write_data(f.extra_data); // Extra
+				bw.write_data(f.data); // Data
+			}
+
+			// Central directory
+			pos_cd = bw.get_pos();
+			for (i = 0; i < file_count; ++i) {
+				f = this.files[i];
+
+				// Entry
+				bw.write_data(signatures.cd); // Signature
+				write_central_directory_header.call(this, bw, f);
+
+				// Data
+				bw.write_data(f.name_data); // Name
+				bw.write_data(f.extra_data); // Extra
+				bw.write_data(f.comment_data); // Comment
+			}
+
+			// Footer
+			pos_footer = bw.get_pos();
+			bw.write_data(signatures.footer); // Signature
+			write_footer.call(this, bw, file_count, pos_cd, pos_footer);
+			bw.write_data(this.comment_data); // Comment
+		};
+
 
 
 		ZipCreator.array_to_string = array_to_string;
@@ -817,49 +931,15 @@
 				this.files[index].set_date(date);
 			},
 
-			to_buffer: function () {
+			to_buffer: function (segment_length) {
 				var total_size = this.calculate_size(),
-					file_count = this.files.length,
-					bw = new BufferWriter(new Uint8Array(total_size)),
-					pos_cd, i, f;
+					bw = (segment_length === undefined) ?
+					new BufferWriter(new Uint8Array(total_size)) :
+					new MultiBufferWriter(total_size, segment_length);
 
-				// Write file data
-				for (i = 0; i < file_count; ++i) {
-					f = this.files[i];
-					f.prepare(bw.pos);
+				write_to_buffer.call(this, bw);
 
-					// Header
-					bw.write_data(signatures.file); // Signature
-					write_file_header.call(this, bw, f);
-
-					// Data
-					bw.write_data(f.name_data); // Name
-					bw.write_data(f.extra_data); // Extra
-					bw.write_data(f.data); // Data
-				}
-
-				// Central directory
-				pos_cd = bw.pos;
-				for (i = 0; i < file_count; ++i) {
-					f = this.files[i];
-
-					// Entry
-					bw.write_data(signatures.cd); // Signature
-					write_central_directory_header.call(this, bw, f);
-
-					// Data
-					bw.write_data(f.name_data); // Name
-					bw.write_data(f.extra_data); // Extra
-					bw.write_data(f.comment_data); // Comment
-				}
-
-				// Footer
-				bw.write_data(signatures.footer); // Signature
-				write_footer.call(this, bw, file_count, pos_cd, bw.pos);
-				bw.write_data(this.comment_data); // Comment
-
-				// Done
-				return bw.buffer;
+				return bw.buffers;
 			},
 			to_blob: function () {
 				var file_count = this.files.length,
@@ -4759,6 +4839,14 @@
 					this.pause();
 					return;
 				}
+				else if (/invalid\s+token/i.test(s)) {
+					// Error
+					trigger_error.call(this, "Invalid token error encountered");
+
+					// Stop
+					this.pause();
+					return;
+				}
 			}
 
 			// Set info
@@ -5069,8 +5157,8 @@
 			// Create
 			this.loader = new GalleryDownloader(gallery, thumb_loader);
 			this.zip = new ZipCreator();
-			this.zip_blob = null;
-			this.zip_blob_url = null;
+			this.zip_blob_urls = [];
+			this.zip_blob_script_urls = [];
 
 			// Values
 			this.filename_mode = constants.MAIN_NAME_FULL;
@@ -5088,6 +5176,7 @@
 
 			// Nodes
 			this.node_main_link = null;
+			this.node_main_links_container = null;
 
 			this.node_info_status = null;
 			this.node_info_count = null;
@@ -5128,6 +5217,7 @@
 				$("div", "eze_dl_title", [
 					this.node_main_link = $("a", "eze_dl_link", null, "Begin downloading"),
 				]),
+				this.node_main_links_container = $("div", "eze_dl_links eze_dl_links_hidden"),
 				$("div", "eze_dl_info_container", [
 					this.node_info_status = $("div", "eze_dl_info eze_dl_info_visible", "Downloading has not started"),
 					this.node_info_count = $("div", "eze_dl_info", ""),
@@ -5520,7 +5610,12 @@
 				this.node_main_link.text = "Begin download";
 			}
 			else if (state == GalleryDownloader.COMPLETED) {
-				this.node_main_link.text = "Click to download file";
+				if (this.zip_blob_urls.length < 2) {
+					this.node_main_link.text = "Click to download file";
+				}
+				else {
+					this.node_main_link.text = "Click the links below to download the zip archive";
+				}
 			}
 			else {
 				if (this.loader.is_active()) {
@@ -5726,36 +5821,42 @@
 			this.node_info_count.textContent = s;
 		};
 
-		var update_final_filename = function () {
-			if (this.zip_blob_url !== null) {
-				// Get name
-				var max_len, ext, base_name;
+		var get_ext = function () {
+			if (this.filename_ext_mode == constants.FILE_EXTENSION_ZIP) {
+				return ".zip";
+			}
+			else { // if (this.filename_ext_mode == constants.FILE_EXTENSION_CBZ) {
+				return ".cbz";
+			}
+		};
 
-				if (this.filename_ext_mode == constants.FILE_EXTENSION_ZIP) {
-					ext = ".zip";
-				}
-				else { // if (this.filename_ext_mode == constants.FILE_EXTENSION_CBZ) {
-					ext = ".cbz";
-				}
+		var get_final_filename = function () {
+			// Get name
+			var ext = get_ext.call(this),
+				max_len, base_name;
 
-				if (this.filename_mode == constants.MAIN_NAME_FULL) {
-					base_name = filename_normalize.call(this, this.loader.gal_info.title);
-				}
-				else { // if (this.filename_mode == constants.MAIN_NAME_SHORT) {
-					base_name = filename_normalize.call(this, this.loader.gal_title_info.title);
-				}
+			if (this.filename_mode == constants.MAIN_NAME_FULL) {
+				base_name = filename_normalize.call(this, this.loader.gal_info.title);
+			}
+			else { // if (this.filename_mode == constants.MAIN_NAME_SHORT) {
+				base_name = filename_normalize.call(this, this.loader.gal_title_info.title);
+			}
 
-				max_len = Math.max(0, this.loader.get_max_filename_length() - ext.length);
+			max_len = Math.max(0, this.loader.get_max_filename_length() - ext.length);
+			if (base_name.length > max_len) {
+				var ellipsis = "";
+				base_name = base_name.substr(0, Math.max(max_len - ellipsis.length)) + ellipsis;
 				if (base_name.length > max_len) {
-					var ellipsis = "";
-					base_name = base_name.substr(0, Math.max(max_len - ellipsis.length)) + ellipsis;
-					if (base_name.length > max_len) {
-						base_name = base_name.substr(0, max_len);
-					}
+					base_name = base_name.substr(0, max_len);
 				}
+			}
 
-				// Apply to link
-				this.node_main_link.setAttribute("download", base_name + ext);
+			// Apply to link
+			return base_name + ext;
+		};
+		var update_final_filename = function () {
+			if (this.zip_blob_urls.length > 0) {
+				this.node_main_link.setAttribute("download", get_final_filename.call(this));
 			}
 		};
 		var set_image_naming_mode = function (mode, number_mode) {
@@ -5784,9 +5885,22 @@
 			}
 
 			// Regenerate blob
-			if (this.zip_blob !== null) {
+			if (this.zip_blob_urls.length > 0) {
 				create_zip.call(this);
 			}
+		};
+
+		var revoke_urls = function () {
+			var i;
+			for (i = 0; i < this.zip_blob_urls.length; ++i) {
+				window.URL.revokeObjectURL(this.zip_blob_urls[i]);
+			}
+			this.zip_blob_urls = [];
+
+			for (i = 0; i < this.zip_blob_script_urls.length; ++i) {
+				window.URL.revokeObjectURL(this.zip_blob_script_urls[i]);
+			}
+			this.zip_blob_script_urls = [];
 		};
 
 		var get_zip_image_filename = function (base_name, index) {
@@ -5838,21 +5952,87 @@
 		};
 		var create_zip = function () {
 			// Revoke
-			if (this.zip_blob_url !== null) {
-				window.URL.revokeObjectURL(this.zip_blob_url);
-				this.zip_blob = null;
-				this.zip_blob_url = null;
-			}
+			var buffer, zip_blob;
+			revoke_urls.call(this);
+
+			this.node_main_links_container.innerHTML = "";
+			this.node_main_links_container.classList.add("eze_dl_links_hidden");
 
 			try {
 				// Create
 				// this.zip_blob = this.zip.to_blob(); // crashes firefox 49
-				var buffer = this.zip.to_buffer();
-				this.zip_blob = ZipCreator.arraybuffer_to_blob(buffer);
-				this.zip_blob_url = window.URL.createObjectURL(this.zip_blob);
+				buffer = this.zip.to_buffer();
+				zip_blob = ZipCreator.arraybuffer_to_blob(buffer);
+				this.zip_blob_urls.push(window.URL.createObjectURL(zip_blob));
 
 				// Apply link
-				this.node_main_link.setAttribute("href", this.zip_blob_url);
+				this.node_main_link.setAttribute("href", this.zip_blob_urls[0]);
+			}
+			catch (e) {
+				create_multi_zip.call(this);
+			}
+
+			// Main link
+			update_main_link_text.call(this);
+
+			// Update filename
+			update_final_filename.call(this);
+		};
+		var create_multi_zip = function () {
+			// Revoke
+			var i, buffers, zip_blob, n, n1, n2, fn, ext, names, filename;
+			revoke_urls.call(this);
+
+			try {
+				// Create
+				buffers = this.zip.to_buffer(1024 * 1024 * 100); // 100MB limit
+
+				if (buffers.length > 1) {
+					this.node_main_link.removeAttribute("href");
+					this.node_main_links_container.classList.remove("eze_dl_links_hidden");
+
+					ext = get_ext.call(this);
+					names = [];
+					filename = get_final_filename.call(this);
+
+					for (i = 0; i < buffers.length; ++i) {
+						zip_blob = ZipCreator.arraybuffer_to_blob(buffers[i]);
+						this.zip_blob_urls.push(window.URL.createObjectURL(zip_blob));
+
+						fn = "part" + (i + 1) + ext;
+						n = $("div", "eze_dl_links_inner", [
+							$("a", "eze_dl_links_single", fn, { href: this.zip_blob_urls[i], download: fn }),
+						]);
+						names.push(fn);
+
+						this.node_main_links_container.appendChild(n);
+					}
+
+					n = $("div", "eze_dl_links_scripts", [
+						$.text("File too large to download as a single file -- download all the parts and then combine them using one of the following scripts:"),
+						$("div", [
+							$("strong", null, "Windows script: "),
+							n1 = $("a", null, "download"),
+							$.text(" | "),
+							$("strong", null, "Linux, Mac, etc. script: "),
+							n2 = $("a", null, "download"),
+						]),
+						$("div", "eze_dl_links_script_name", [
+							$.text("Filename: "),
+							$("input", "eze_dl_setting_input", { type: "text", value: filename }),
+						])
+					]);
+					this.node_main_links_container.appendChild(n);
+
+					create_concat_scripts.call(this, names, ext, filename, n1, n2);
+				}
+				else {
+					// Apply link
+					zip_blob = ZipCreator.arraybuffer_to_blob(buffers[0]);
+					this.zip_blob_urls.push(window.URL.createObjectURL(zip_blob));
+
+					this.node_main_link.setAttribute("href", this.zip_blob_urls[0]);
+				}
 			}
 			catch (e) {
 				console.log(e);
@@ -5950,9 +6130,78 @@
 			this.zip.add_file(ZipCreator.string_to_array(JSON.stringify(json_info, null, tab_mode)), this.zip_info_json_name);
 
 			// Done
-			if (this.zip_blob !== null) {
+			if (this.zip_blob_urls.length > 0) {
 				create_zip.call(this);
 			}
+		};
+
+		var create_concat_scripts = function (files, ext, filename, win_link, gnu_linux_or_as_ive_recently_taken_to_calling_it_gnu_plus_linux_link) {
+			var s, output_name, temp_name, i, blob, url;
+
+			temp_name = "output_" + (("" + Math.random()).replace(/[^0-9]+/g, "")) + ext;
+
+			filename = filename.replace(/[^\x20-\x7e]+|\"/g, "");
+
+			// Windows
+			s = "copy ";
+			for (i = 0; i < files.length; ++i) {
+				if (i > 0) s += " + ";
+				s += "/b \"";
+				s += files[i];
+				s += "\"";
+			}
+
+			s += " \"";
+			s += temp_name;
+			s += "\" /b || goto :eof\r\n";
+			for (i = 0; i < files.length; ++i) {
+				s += "\r\ndel \"";
+				s += files[i];
+				s += "\"";
+			}
+
+			s += "\r\n\r\nren \"";
+			s += temp_name;
+			s += "\" \"";
+			s += filename;
+			s += "\"\r\n";
+
+			blob = new Blob([ ZipCreator.string_to_array(s) ], { type: "application/x-bat" });
+			url = window.URL.createObjectURL(blob);
+			this.zip_blob_script_urls.push(url);
+
+			win_link.setAttribute("href", url);
+			win_link.setAttribute("download", "join_script.bat");
+
+			// Linux
+			s = "#!/bin/sh\ncat";
+			for (i = 0; i < files.length; ++i) {
+				s += " \"";
+				s += files[i];
+				s += "\"";
+			}
+
+			s += " > \"";
+			s += temp_name;
+			s += "\" || exit 1\n";
+			for (i = 0; i < files.length; ++i) {
+				s += "\nrm \"";
+				s += files[i];
+				s += "\"";
+			}
+
+			s += "\n\nmv \"";
+			s += temp_name;
+			s += "\" \"";
+			s += filename;
+			s += "\"\n";
+
+			blob = new Blob([ ZipCreator.string_to_array(s) ], { type: "text/x-shellscript" });
+			url = window.URL.createObjectURL(blob);
+			this.zip_blob_script_urls.push(url);
+
+			gnu_linux_or_as_ive_recently_taken_to_calling_it_gnu_plus_linux_link.setAttribute("href", url);
+			gnu_linux_or_as_ive_recently_taken_to_calling_it_gnu_plus_linux_link.setAttribute("download", "join_script.sh");
 		};
 
 		var title_init = function () {
@@ -6200,9 +6449,6 @@
 
 				// Create zip url
 				create_zip.call(this);
-
-				// Update
-				update_final_filename.call(this);
 
 				// Title
 				title_complete.call(this);
@@ -6758,7 +7004,7 @@
 
 		// Create css
 		css = CSS.format(
-			".id1:not(.e-Highlighted):not(.e-Filtered)>.id2{overflow:visible;position:relative;}.id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2{z-index:1;}.id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2>a{text-shadow:0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}};background:{{color:bg,0.75}};display:inline-block;padding-bottom:0.5em;}.eze_gallery_page_container{}.eze_gallery_page{background:{{color:bg_light}};border:1px solid {{color:border}};text-align:left;width:99%;min-width:950px;max-width:1200px;margin:0 auto;clear:both;padding:5px;border-radius:{{border_radius}};position:relative;border-top-left-radius:0;}.eze_gallery_page img{border:1px solid {{color:border}};margin:0;padding:0;}.eze_gallery_page a{text-decoration:none;}.eze_gallery_page+.eze_gallery_page{margin-top:0.5em;}.eze_gallery_page_indicator{display:inline-block;position:absolute;right:100%;top:0;background-color:{{color:bg_dark}};}.eze_gallery_page_indicator:hover{background-color:{{color:bg_light}};}.eze_gallery_page_indicator_border_top{position:absolute;bottom:100%;left:0;right:0;border-bottom:1px solid {{color:border}};}.eze_gallery_page_indicator_border{position:absolute;left:0;top:0;right:0;bottom:0;border-style:solid;border-width:0px 0px 1px 1px;border-color:{{color:border}};}.eze_gallery_page_indicator:not(:hover)>.ez_gallery_page_indicator_border{border-right:1px solid {{color:border}};}.eze_gallery_page_indicator_text{position:relative;display:inline-block;white-space:nowrap;padding:4px;}.eze_favorite_link{cursor:pointer;}div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.5em;}.eze_gallery_custom_container_inner{}.eze_gallery_custom{margin:0 auto;}.eze_gallery_link{text-decoration:none;font-weight:bold;cursor:pointer;font-weight:bold;}.eze_gallery_link>*{vertical-align:middle;}.eze_gallery_custom_table{display:table;table-layout:fixed;width:100%;}.eze_gallery_custom_row{display:table-row;}.eze_gallery_custom_cell{display:table-cell;text-align:left;}.eze_gallery_custom_cell+.eze_gallery_custom_cell{border-left:1px solid {{color:border}};padding-left:0.5em;}.eze_dl_container{margin-top:0.5em;padding-top:0.5em;border-top:1px solid {{color:border}};}.eze_dl_container:not(.eze_dl_container_visible){display:none;}.eze_dl_title{font-size:2em;font-weight:bold;margin-bottom:0.125em;}.eze_dl_title.eze_dl_title_pad_above{margin-top:0.125em;}.eze_dl_link{cursor:pointer;text-decoration:none;}.eze_dl_info_container{margin-left:-0.5em;}.eze_dl_info{display:inline-block;margin-left:0.5em;border:1px solid {{color:border}};background-color:{{color:bg}};border-bottom:none;padding:0.25em;}.eze_dl_info.eze_dl_info_error{color:#f00000;text-shadow:1px 1px 0 {{color:border}};}.eze_dl_info:not(.eze_dl_info_visible){display:none;}.eze_dl_progress_bar{position:relative;width:100%;box-sizing:border-box;-moz-box-sizing:border-box;border:1px solid {{color:border}};background-color:{{color:bg_dark}};}.eze_dl_progress_bar+.eze_dl_progress_bar{border-top:none;}.eze_dl_progress_bar_bg,.eze_dl_progress_bar_bg_light{position:absolute;left:0;top:0;bottom:0;background-color:{{color:dl_bar_bg1}};}.eze_dl_progress_bar_indicator{position:absolute;left:0;top:0;bottom:0;border-right:1px solid {{color:border}};}.eze_dl_progress_bar_indicator.eze_dl_progress_bar_indicator_hidden{display:none;}.eze_dl_progress_bar.eze_dl_progress_bar_image_pages>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg2}};}.eze_dl_progress_bar.eze_dl_progress_bar_images>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg3}};}.eze_dl_progress_bar.eze_dl_progress_bar_image_size>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg4}};}.eze_dl_progress_bar.eze_dl_progress_bar_timeout>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg5}};}.eze_dl_progress_bar.eze_dl_progress_bar_timeout>.eze_dl_progress_bar_bg_light{background-color:{{color:dl_bar_bg5_light}};}.eze_dl_progress_bar_text{position:relative;height:1.25em;padding:0.25em;line-height:1.25em;color:{{color:text}};text-shadow:1px 1px 0 {{color:text_shadow}};}.eze_dl_setting{display:table;width:100%;padding:0.5em;box-sizing:border-box;-moz-box-sizing:border-box;}.eze_dl_setting:nth-of-type(2n){background-color:{{color:bg}};}.eze_dl_setting_row{display:table-row;}.eze_dl_setting_cell{display:table-cell;width:100%;vertical-align:top;}.eze_dl_setting_cell:first-of-type{width:0;white-space:nowrap;}.eze_dl_setting_cell:not(:first-of-type){text-align:right;}.eze_dl_setting_cell:not(:first-of-type)>div+div{margin-top:0.125em;}.eze_dl_setting_title{font-size:1.25em;font-weight:bold;}.eze_dl_setting_desc{}.eze_dl_setting_desc_tag{background-color:{{color:bg}};padding:0.125em 0.375em;display:inline-block;border-radius:0.5em;margin-left:0.5em;}.eze_dl_setting:nth-of-type(2n) .eze_dl_setting_desc_tag{background-color:{{color:bg_light}};}.eze_dl_setting_input{border:1px solid {{color:border}};background-color:{{color:bg_dark}};color:{{color:text}};padding:0.125em;line-height:1.25em;width:10em;font-family:inherit;}.eze_dl_setting_input.eze_dl_setting_input_small{width:4em;}.eze_option_box{display:inline-block;border:1px solid {{color:border}};background-color:{{color:bg_dark}};line-height:1.5em;padding:0 0.25em;height:1.5em;overflow:hidden;text-align:center;cursor:pointer;}.eze_option_box+.eze_option_box{margin-left:0.5em;}.eze_option_box_entry{display:block;height:1.5em;}.eze_option_box_entry:not(.eze_option_box_entry_selected){height:0;overflow:hidden;visibility:hidden;}.eze_dl_label>*{vertical-align:middle;}.eze_dgallery_table{display:table;width:100%;}.eze_dgallery_table.eze_dgallery_table_spaced{margin:1em 0;}.eze_dgallery_row{display:table-row;}.eze_dgallery_cell{display:table-cell;width:0;vertical-align:top;}.eze_dgallery_cell.eze_dgallery_cell_full{width:100%;}.eze_dgallery_cell.eze_dgallery_cell_nowhite{white-space:nowrap;}.eze_dgallery_cell.eze_dgallery_cell_pre_border{padding-right:0.5em;}.eze_dgallery_cell.eze_dgallery_cell_border{border-left:1px solid {{color:border}};padding-left:0.5em;}.eze_dgallery_image{border:1px solid {{color:border}};min-width:200px;height:auto;margin-right:1em;}.eze_dgallery_title{font-size:1.5em;margin:0.25em 0;}.eze_dgallery_title_alt{font-size:1.25em;margin:0.25em 0;color:{{color:text_light}};}.eze_dgallery_tag_container{margin:-0.5em 0 0 -1em;}.eze_dgallery_tag{display:inline-block;margin:0.5em 0 0 1em;padding:0.25em;font-weight:bold;white-space:nowrap;border-radius:0.5em;border:1px solid #989898;background:{{color:bg_light}};cursor:pointer;text-decoration:none;}.eze_dgallery_info_label{font-weight:bold;}.eze_dgallery_extra_container{border-top:1px solid {{color:border}};padding-top:0.5em;}.eze_main_container{position:absolute;left:0;top:0;bottom:0;right:0;white-space:nowrap;line-height:0;text-align:center;}.eze_main_container:before{content:\"\";display:inline-block;width:0;height:100%;vertical-align:middle;}.eze_main{display:inline-block;width:950px;vertical-align:top;white-space:normal;line-height:normal;text-align:left;margin:2em 0;}.eze_main.eze_main_middle{vertical-align:middle;}.eze_main_box{border:1px solid {{color:border}};background-color:{{color:bg}};padding:0.5em 1em;box-sizing:border-box;-moz-box-sizing:border-box;}.eze_menu{display:block;position:absolute;left:0;top:0;background-color:{{color:bg}};text-align:left;white-space:nowrap;border:1px solid {{color:border}};z-index:100;}.eze_menu_option,.eze_menu_label{display:block;padding:0.25em;text-decoration:none;}.eze_menu_option{cursor:pointer;}.eze_menu_label{cursor:default;}.eze_menu_option:hover{background-color:{{color:bg_dark}};}.eze_settings_container:not(.eze_settings_container_visible){display:none;}.eze_settings_container.eze_settings_container_visible~.stuffbox{display:none;}.eze_settings_box{font-size:1.2em;text-align:center;margin:5px auto;width:700px;padding:5px;text-align:left;border:1px solid {{color:border}};background-color:{{color:bg_light}};}.eze_settings_header{margin:0 0 0.25em;padding:0;font-size:2em;}.eze_settings_entry_container{}.eze_settings_entry{padding:0.25em;}.eze_settings_entry:nth-of-type(2n){background-color:{{color:bg}};}.eze_settings_label>*{vertical-align:middle;}.eze_settings_pad_left{margin-left:0.5em;}.eze_cv_container{position:absolute;left:0;top:0;bottom:0;right:0;overflow:hidden;}.eze_cv_offset_size{position:absolute;left:50%;top:50%;width:0;height:0;}.eze_cv_offset{width:100%;height:100%;transform:translate(0%,0%);}.eze_cv_content_container{display:inline-block;transform:translate(-50%,-50%);}.eze_cv_content{position:relative;}.eze_cv_container.eze_cv_container_transition_scale>.eze_cv_offset_size{transition:width 0.25s ease-in-out 0s,height 0.25s ease-in-out 0s;}.eze_cv_container.eze_cv_container_transition_scale>*>*>*>.eze_cv_content{transition:transform 0.25s ease-in-out 0s;}.eze_cv_container.eze_cv_container_transition_position>*>.eze_cv_offset{transition:transform 0.25s ease-in-out 0s;}body.eze_multiviewer_visible{overflow:hidden;}.eze_multiviewer{position:absolute;left:0;top:0;bottom:0;right:0;font-size:16px;background-color:{{color:bg_dark}};}.eze_multiviewer:not(.eze_multiviewer_visible){display:none;}.eze_multiviewer.eze_multiviewer_visible~*{display:none;}.eze_multiviewer_sidebar{position:absolute;right:0;top:0;bottom:0;background-color:{{color:bg_light}};border-left:1px solid {{color:border}};overflow-x:hidden;overflow-y:scroll;}.eze_multiviewer_sidebar:not(.eze_multiviewer_sidebar_visible){display:none;}.eze_multiviewer_sidebar.eze_multiviewer_sidebar_left{right:auto;left:0;border-left:none;border-right:1px solid {{color:border}};}.eze_multiviewer_sidebar_size{}.eze_multiviewer_content{position:fixed;left:0;top:0;bottom:0;right:0;}.eze_multiviewer_content_size{position:absolute;left:0;top:0;bottom:0;right:0;}.eze_multiviewer_topbar{position:fixed;left:0;top:0;right:0;line-height:1.25em;background-color:{{color:bg_light}};border-bottom:1px solid {{color:border}};}.eze_multiviewer_topbar:not(.eze_multiviewer_topbar_visible){display:none;}.eze_multiviewer_scrollbars{position:absolute;left:0;top:0;right:0;bottom:0;overflow-x:hidden;overflow-y:hidden;}.eze_multiviewer_scrollbars.eze_multiviewer_scrollbars_visible_h{position:absolute;right:0;top:0;bottom:0;right:0;overflow-x:scroll;}.eze_multiviewer_scrollbars.eze_multiviewer_scrollbars_visible_v{position:absolute;right:0;top:0;bottom:0;right:0;overflow-y:scroll;}.eze_multiviewer_scrollbars:not(.eze_multiviewer_scrollbars_visible){display:none;}.eze_multiviewer_scrollbars_range{width:100%;height:100%;}.eze_multiviewer_scrollbars_size{width:100%;height:100%;}.eze_multiviewer_image_container{padding:0.5em;}.eze_multiviewer_image_size{position:relative;background-color:{{color:multiviewer_page_bg}};}.eze_multiviewer_image_container.eze_multiviewer_image_container_no_bg>.eze_multiviewer_image_size{background-color:transparent;}.eze_multiviewer_image{vertical-align:middle;-position:absolute;left:0;top:0;width:100%;height:100%;}.eze_multiviewer_thumb_container{}.eze_multiviewer_thumb_sep{display:block;cursor:default;border-top:0.125em solid {{color:text_light}};border-bottom:0.125em solid {{color:text_light}};height:0.125em;margin:0.5em 1em;}.eze_multiviewer_thumb_sep:not(.eze_multiviewer_thumb_sep_visible){display:none;}.eze_multiviewer_thumb{text-align:center;padding:0.5em 1em;cursor:pointer;transition:background-color 0.25s ease-in-out 0s;display:block;text-decoration:none;}.eze_multiviewer_thumb:not(.eze_multiviewer_thumb_visible){display:none;}.eze_multiviewer_thumb:hover{background-color:{{color:multiviewer_page_hl}};}.eze_multiviewer_thumb.eze_multiviewer_thumb_viewing{background-color:{{color:multiviewer_page_selected}};}.eze_multiviewer_thumb.eze_multiviewer_thumb_viewing:hover{background-color:{{color:multiviewer_page_selected_hl}};}.eze_multiviewer_thumb_sizer1{display:inline-block;vertical-align:middle;width:100%;}.eze_multiviewer_thumb_sizer2{position:relative;width:100%;}.eze_multiviewer_thumb_sizer3{position:relative;width:100%;height:100%;white-space:nowrap;line-height:0;}.eze_multiviewer_thumb_aligner{display:inline-block;vertical-align:middle;width:0;height:0;padding-top:50%;}.eze_multiviewer_thumb_size{display:inline-block;vertical-align:middle;white-space:normal;line-height:normal;width:100%;padding-top:100%;position:relative;background-color:{{color:multiviewer_page_bg}};overflow:hidden;}.eze_multiviewer_thumb_image{position:absolute;left:0;top:0;bottom:0;right:0;background-color:transparent;background-repeat:no-repeat;background-position:center center;background-size:auto;transform-origin:0 0;opacity:0.25;transition:opacity 0.25s ease-in-out 0s;}.eze_multiviewer_thumb[data-eze-state='0']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.25;}.eze_multiviewer_thumb[data-eze-state='1']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.25;}.eze_multiviewer_thumb[data-eze-state='2']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.25;}.eze_multiviewer_thumb[data-eze-state='3']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.5;}.eze_multiviewer_thumb[data-eze-state='4']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}.eze_multiviewer_thumb[data-eze-state='5']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.5;}.eze_multiviewer_thumb.eze_multiviewer_thumb_viewing[data-eze-state]>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}.eze_multiviewer_thumb[data-eze-state]:hover>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}",			vars
+			".id1:not(.e-Highlighted):not(.e-Filtered)>.id2{overflow:visible;position:relative;}.id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2{z-index:1;}.id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2>a{text-shadow:0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}};background:{{color:bg,0.75}};display:inline-block;padding-bottom:0.5em;}.eze_gallery_page_container{}.eze_gallery_page{background:{{color:bg_light}};border:1px solid {{color:border}};text-align:left;width:99%;min-width:950px;max-width:1200px;margin:0 auto;clear:both;padding:5px;border-radius:{{border_radius}};position:relative;border-top-left-radius:0;}.eze_gallery_page img{border:1px solid {{color:border}};margin:0;padding:0;}.eze_gallery_page a{text-decoration:none;}.eze_gallery_page+.eze_gallery_page{margin-top:0.5em;}.eze_gallery_page_indicator{display:inline-block;position:absolute;right:100%;top:0;background-color:{{color:bg_dark}};}.eze_gallery_page_indicator:hover{background-color:{{color:bg_light}};}.eze_gallery_page_indicator_border_top{position:absolute;bottom:100%;left:0;right:0;border-bottom:1px solid {{color:border}};}.eze_gallery_page_indicator_border{position:absolute;left:0;top:0;right:0;bottom:0;border-style:solid;border-width:0px 0px 1px 1px;border-color:{{color:border}};}.eze_gallery_page_indicator:not(:hover)>.ez_gallery_page_indicator_border{border-right:1px solid {{color:border}};}.eze_gallery_page_indicator_text{position:relative;display:inline-block;white-space:nowrap;padding:4px;}.eze_favorite_link{cursor:pointer;}div.eze_gallery_custom_container{font-size:1.25em;margin:0 auto 0.5em;padding:0.5em;}.eze_gallery_custom_container_inner{}.eze_gallery_custom{margin:0 auto;}.eze_gallery_link{text-decoration:none;font-weight:bold;cursor:pointer;font-weight:bold;}.eze_gallery_link>*{vertical-align:middle;}.eze_gallery_custom_table{display:table;table-layout:fixed;width:100%;}.eze_gallery_custom_row{display:table-row;}.eze_gallery_custom_cell{display:table-cell;text-align:left;}.eze_gallery_custom_cell+.eze_gallery_custom_cell{border-left:1px solid {{color:border}};padding-left:0.5em;}.eze_dl_container{margin-top:0.5em;padding-top:0.5em;border-top:1px solid {{color:border}};}.eze_dl_container:not(.eze_dl_container_visible){display:none;}.eze_dl_title{font-size:2em;font-weight:bold;margin-bottom:0.125em;}.eze_dl_title.eze_dl_title_pad_above{margin-top:0.125em;}.eze_dl_link{cursor:pointer;text-decoration:none;}.eze_dl_links{display:block;}.eze_dl_links:not(.eze_dl_links_hidden){margin-bottom:0.25em;}.eze_dl_links_scripts{margin-top:0.5em;}.eze_dl_links_script_name{margin-top:0.25em;}.eze_dl_info_container{margin-left:-0.5em;}.eze_dl_info{display:inline-block;margin-left:0.5em;border:1px solid {{color:border}};background-color:{{color:bg}};border-bottom:none;padding:0.25em;}.eze_dl_info.eze_dl_info_error{color:#f00000;text-shadow:1px 1px 0 {{color:border}};}.eze_dl_info:not(.eze_dl_info_visible){display:none;}.eze_dl_progress_bar{position:relative;width:100%;box-sizing:border-box;-moz-box-sizing:border-box;border:1px solid {{color:border}};background-color:{{color:bg_dark}};}.eze_dl_progress_bar+.eze_dl_progress_bar{border-top:none;}.eze_dl_progress_bar_bg,.eze_dl_progress_bar_bg_light{position:absolute;left:0;top:0;bottom:0;background-color:{{color:dl_bar_bg1}};}.eze_dl_progress_bar_indicator{position:absolute;left:0;top:0;bottom:0;border-right:1px solid {{color:border}};}.eze_dl_progress_bar_indicator.eze_dl_progress_bar_indicator_hidden{display:none;}.eze_dl_progress_bar.eze_dl_progress_bar_image_pages>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg2}};}.eze_dl_progress_bar.eze_dl_progress_bar_images>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg3}};}.eze_dl_progress_bar.eze_dl_progress_bar_image_size>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg4}};}.eze_dl_progress_bar.eze_dl_progress_bar_timeout>.eze_dl_progress_bar_bg{background-color:{{color:dl_bar_bg5}};}.eze_dl_progress_bar.eze_dl_progress_bar_timeout>.eze_dl_progress_bar_bg_light{background-color:{{color:dl_bar_bg5_light}};}.eze_dl_progress_bar_text{position:relative;height:1.25em;padding:0.25em;line-height:1.25em;color:{{color:text}};text-shadow:1px 1px 0 {{color:text_shadow}};}.eze_dl_setting{display:table;width:100%;padding:0.5em;box-sizing:border-box;-moz-box-sizing:border-box;}.eze_dl_setting:nth-of-type(2n){background-color:{{color:bg}};}.eze_dl_setting_row{display:table-row;}.eze_dl_setting_cell{display:table-cell;width:100%;vertical-align:top;}.eze_dl_setting_cell:first-of-type{width:0;white-space:nowrap;}.eze_dl_setting_cell:not(:first-of-type){text-align:right;}.eze_dl_setting_cell:not(:first-of-type)>div+div{margin-top:0.125em;}.eze_dl_setting_title{font-size:1.25em;font-weight:bold;}.eze_dl_setting_desc{}.eze_dl_setting_desc_tag{background-color:{{color:bg}};padding:0.125em 0.375em;display:inline-block;border-radius:0.5em;margin-left:0.5em;}.eze_dl_setting:nth-of-type(2n) .eze_dl_setting_desc_tag{background-color:{{color:bg_light}};}.eze_dl_setting_input{border:1px solid {{color:border}};background-color:{{color:bg_dark}};color:{{color:text}};padding:0.125em;line-height:1.25em;width:10em;font-family:inherit;}.eze_dl_setting_input.eze_dl_setting_input_small{width:4em;}.eze_option_box{display:inline-block;border:1px solid {{color:border}};background-color:{{color:bg_dark}};line-height:1.5em;padding:0 0.25em;height:1.5em;overflow:hidden;text-align:center;cursor:pointer;}.eze_option_box+.eze_option_box{margin-left:0.5em;}.eze_option_box_entry{display:block;height:1.5em;}.eze_option_box_entry:not(.eze_option_box_entry_selected){height:0;overflow:hidden;visibility:hidden;}.eze_dl_label>*{vertical-align:middle;}.eze_dgallery_table{display:table;width:100%;}.eze_dgallery_table.eze_dgallery_table_spaced{margin:1em 0;}.eze_dgallery_row{display:table-row;}.eze_dgallery_cell{display:table-cell;width:0;vertical-align:top;}.eze_dgallery_cell.eze_dgallery_cell_full{width:100%;}.eze_dgallery_cell.eze_dgallery_cell_nowhite{white-space:nowrap;}.eze_dgallery_cell.eze_dgallery_cell_pre_border{padding-right:0.5em;}.eze_dgallery_cell.eze_dgallery_cell_border{border-left:1px solid {{color:border}};padding-left:0.5em;}.eze_dgallery_image{border:1px solid {{color:border}};min-width:200px;height:auto;margin-right:1em;}.eze_dgallery_title{font-size:1.5em;margin:0.25em 0;}.eze_dgallery_title_alt{font-size:1.25em;margin:0.25em 0;color:{{color:text_light}};}.eze_dgallery_tag_container{margin:-0.5em 0 0 -1em;}.eze_dgallery_tag{display:inline-block;margin:0.5em 0 0 1em;padding:0.25em;font-weight:bold;white-space:nowrap;border-radius:0.5em;border:1px solid #989898;background:{{color:bg_light}};cursor:pointer;text-decoration:none;}.eze_dgallery_info_label{font-weight:bold;}.eze_dgallery_extra_container{border-top:1px solid {{color:border}};padding-top:0.5em;}.eze_main_container{position:absolute;left:0;top:0;bottom:0;right:0;white-space:nowrap;line-height:0;text-align:center;}.eze_main_container:before{content:\"\";display:inline-block;width:0;height:100%;vertical-align:middle;}.eze_main{display:inline-block;width:950px;vertical-align:top;white-space:normal;line-height:normal;text-align:left;margin:2em 0;}.eze_main.eze_main_middle{vertical-align:middle;}.eze_main_box{border:1px solid {{color:border}};background-color:{{color:bg}};padding:0.5em 1em;box-sizing:border-box;-moz-box-sizing:border-box;}.eze_menu{display:block;position:absolute;left:0;top:0;background-color:{{color:bg}};text-align:left;white-space:nowrap;border:1px solid {{color:border}};z-index:100;}.eze_menu_option,.eze_menu_label{display:block;padding:0.25em;text-decoration:none;}.eze_menu_option{cursor:pointer;}.eze_menu_label{cursor:default;}.eze_menu_option:hover{background-color:{{color:bg_dark}};}.eze_settings_container:not(.eze_settings_container_visible){display:none;}.eze_settings_container.eze_settings_container_visible~.stuffbox{display:none;}.eze_settings_box{font-size:1.2em;text-align:center;margin:5px auto;width:700px;padding:5px;text-align:left;border:1px solid {{color:border}};background-color:{{color:bg_light}};}.eze_settings_header{margin:0 0 0.25em;padding:0;font-size:2em;}.eze_settings_entry_container{}.eze_settings_entry{padding:0.25em;}.eze_settings_entry:nth-of-type(2n){background-color:{{color:bg}};}.eze_settings_label>*{vertical-align:middle;}.eze_settings_pad_left{margin-left:0.5em;}.eze_cv_container{position:absolute;left:0;top:0;bottom:0;right:0;overflow:hidden;}.eze_cv_offset_size{position:absolute;left:50%;top:50%;width:0;height:0;}.eze_cv_offset{width:100%;height:100%;transform:translate(0%,0%);}.eze_cv_content_container{display:inline-block;transform:translate(-50%,-50%);}.eze_cv_content{position:relative;}.eze_cv_container.eze_cv_container_transition_scale>.eze_cv_offset_size{transition:width 0.25s ease-in-out 0s,height 0.25s ease-in-out 0s;}.eze_cv_container.eze_cv_container_transition_scale>*>*>*>.eze_cv_content{transition:transform 0.25s ease-in-out 0s;}.eze_cv_container.eze_cv_container_transition_position>*>.eze_cv_offset{transition:transform 0.25s ease-in-out 0s;}body.eze_multiviewer_visible{overflow:hidden;}.eze_multiviewer{position:absolute;left:0;top:0;bottom:0;right:0;font-size:16px;background-color:{{color:bg_dark}};}.eze_multiviewer:not(.eze_multiviewer_visible){display:none;}.eze_multiviewer.eze_multiviewer_visible~*{display:none;}.eze_multiviewer_sidebar{position:absolute;right:0;top:0;bottom:0;background-color:{{color:bg_light}};border-left:1px solid {{color:border}};overflow-x:hidden;overflow-y:scroll;}.eze_multiviewer_sidebar:not(.eze_multiviewer_sidebar_visible){display:none;}.eze_multiviewer_sidebar.eze_multiviewer_sidebar_left{right:auto;left:0;border-left:none;border-right:1px solid {{color:border}};}.eze_multiviewer_sidebar_size{}.eze_multiviewer_content{position:fixed;left:0;top:0;bottom:0;right:0;}.eze_multiviewer_content_size{position:absolute;left:0;top:0;bottom:0;right:0;}.eze_multiviewer_topbar{position:fixed;left:0;top:0;right:0;line-height:1.25em;background-color:{{color:bg_light}};border-bottom:1px solid {{color:border}};}.eze_multiviewer_topbar:not(.eze_multiviewer_topbar_visible){display:none;}.eze_multiviewer_scrollbars{position:absolute;left:0;top:0;right:0;bottom:0;overflow-x:hidden;overflow-y:hidden;}.eze_multiviewer_scrollbars.eze_multiviewer_scrollbars_visible_h{position:absolute;right:0;top:0;bottom:0;right:0;overflow-x:scroll;}.eze_multiviewer_scrollbars.eze_multiviewer_scrollbars_visible_v{position:absolute;right:0;top:0;bottom:0;right:0;overflow-y:scroll;}.eze_multiviewer_scrollbars:not(.eze_multiviewer_scrollbars_visible){display:none;}.eze_multiviewer_scrollbars_range{width:100%;height:100%;}.eze_multiviewer_scrollbars_size{width:100%;height:100%;}.eze_multiviewer_image_container{padding:0.5em;}.eze_multiviewer_image_size{position:relative;background-color:{{color:multiviewer_page_bg}};}.eze_multiviewer_image_container.eze_multiviewer_image_container_no_bg>.eze_multiviewer_image_size{background-color:transparent;}.eze_multiviewer_image{vertical-align:middle;-position:absolute;left:0;top:0;width:100%;height:100%;}.eze_multiviewer_thumb_container{}.eze_multiviewer_thumb_sep{display:block;cursor:default;border-top:0.125em solid {{color:text_light}};border-bottom:0.125em solid {{color:text_light}};height:0.125em;margin:0.5em 1em;}.eze_multiviewer_thumb_sep:not(.eze_multiviewer_thumb_sep_visible){display:none;}.eze_multiviewer_thumb{text-align:center;padding:0.5em 1em;cursor:pointer;transition:background-color 0.25s ease-in-out 0s;display:block;text-decoration:none;}.eze_multiviewer_thumb:not(.eze_multiviewer_thumb_visible){display:none;}.eze_multiviewer_thumb:hover{background-color:{{color:multiviewer_page_hl}};}.eze_multiviewer_thumb.eze_multiviewer_thumb_viewing{background-color:{{color:multiviewer_page_selected}};}.eze_multiviewer_thumb.eze_multiviewer_thumb_viewing:hover{background-color:{{color:multiviewer_page_selected_hl}};}.eze_multiviewer_thumb_sizer1{display:inline-block;vertical-align:middle;width:100%;}.eze_multiviewer_thumb_sizer2{position:relative;width:100%;}.eze_multiviewer_thumb_sizer3{position:relative;width:100%;height:100%;white-space:nowrap;line-height:0;}.eze_multiviewer_thumb_aligner{display:inline-block;vertical-align:middle;width:0;height:0;padding-top:50%;}.eze_multiviewer_thumb_size{display:inline-block;vertical-align:middle;white-space:normal;line-height:normal;width:100%;padding-top:100%;position:relative;background-color:{{color:multiviewer_page_bg}};overflow:hidden;}.eze_multiviewer_thumb_image{position:absolute;left:0;top:0;bottom:0;right:0;background-color:transparent;background-repeat:no-repeat;background-position:center center;background-size:auto;transform-origin:0 0;opacity:0.25;transition:opacity 0.25s ease-in-out 0s;}.eze_multiviewer_thumb[data-eze-state='0']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.25;}.eze_multiviewer_thumb[data-eze-state='1']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.25;}.eze_multiviewer_thumb[data-eze-state='2']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.25;}.eze_multiviewer_thumb[data-eze-state='3']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.5;}.eze_multiviewer_thumb[data-eze-state='4']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}.eze_multiviewer_thumb[data-eze-state='5']>*>*>*>*>.eze_multiviewer_thumb_image{opacity:0.5;}.eze_multiviewer_thumb.eze_multiviewer_thumb_viewing[data-eze-state]>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}.eze_multiviewer_thumb[data-eze-state]:hover>*>*>*>*>.eze_multiviewer_thumb_image{opacity:1;}",			vars
 		);
 
 		// Insert
