@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.8.3
+// @version     1.0.8.4
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/

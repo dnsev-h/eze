@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.8.3
+// @version     1.0.8.4
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -5317,6 +5317,7 @@
 									[ "Full gallery name + number", constants.IMAGE_NAMING_FULL_NAME ],
 									[ "Short gallery name + number", constants.IMAGE_NAMING_SHORT_NAME ],
 									[ "Original filenames", constants.IMAGE_NAMING_ORIGINAL_NAME ],
+									[ "Number + original filename", constants.IMAGE_NAMING_NUMBERED_ORIGINAL ],
 								], this.image_naming_mode, bind(on_option_image_name_change, this))).node,
 							]),
 						]),
@@ -5455,6 +5456,7 @@
 			IMAGE_NAMING_FULL_NAME: 1,
 			IMAGE_NAMING_SHORT_NAME: 2,
 			IMAGE_NAMING_ORIGINAL_NAME: 3,
+			IMAGE_NAMING_NUMBERED_ORIGINAL: 4,
 
 			NUMBERING_RENUMBER: 0,
 			NUMBERING_ORIGINAL: 1,
@@ -5506,7 +5508,7 @@
 						self.filename_ext_mode = value.filename_ext_mode;
 						self.node_opts_filename_ext_mode.set(self.filename_ext_mode);
 					}
-					if (validate(value.image_naming_mode, [ constants.IMAGE_NAMING_SINGLE_NUMBER , constants.IMAGE_NAMING_FULL_NAME , constants.IMAGE_NAMING_SHORT_NAME , constants.IMAGE_NAMING_ORIGINAL_NAME ])) {
+					if (validate(value.image_naming_mode, [ constants.IMAGE_NAMING_SINGLE_NUMBER , constants.IMAGE_NAMING_FULL_NAME , constants.IMAGE_NAMING_SHORT_NAME , constants.IMAGE_NAMING_ORIGINAL_NAME , constants.IMAGE_NAMING_NUMBERED_ORIGINAL ])) {
 						self.image_naming_mode = value.image_naming_mode;
 						self.node_opts_image_naming_mode.set(self.image_naming_mode);
 					}
@@ -5925,27 +5927,32 @@
 			// Settings
 			var image_data = this.loader.images[index],
 				digit_count = Math.max(3, ("" + this.loader.images.length).length),
-				ext = filename_get_ext(image_data.image_url).toLowerCase();
+				ext = filename_get_ext(image_data.image_url).toLowerCase(),
+				n, number;
 
 			if (ext.length === 0) ext = filename_get_ext(image_data.info.image.filename).toLowerCase();
 			ext = valid_extensions[ext in valid_extensions ? ext : ""];
+
+			n = (this.numbering_mode == constants.NUMBERING_RENUMBER ? index : image_data.image_id);
+			number = "" + (n + 1);
+			while (number.length < digit_count) number = "0" + number;
 
 			// New name
 			if (this.image_naming_mode == constants.IMAGE_NAMING_ORIGINAL_NAME) {
 				// Set filename
 				base_name += filename_normalize(filename_remove_ext(image_data.info.image.filename));
-				base_name += ext;
+			}
+			else if (this.image_naming_mode == constants.IMAGE_NAMING_NUMBERED_ORIGINAL) {
+				// Set filename
+				base_name += number;
+				base_name += " - ";
+				base_name += filename_normalize(filename_remove_ext(image_data.info.image.filename));
 			}
 			else {
 				// Append number
-				var n = (this.numbering_mode == constants.NUMBERING_RENUMBER ? index : image_data.image_id),
-					number = "" + (n + 1);
-
-				while (number.length < digit_count) number = "0" + number;
-
 				base_name += number;
-				base_name += ext;
 			}
+			base_name += ext;
 
 			// Update
 			return base_name;
@@ -6136,7 +6143,7 @@
 		};
 
 		var create_concat_scripts = function (files, ext, filename, win_link, gnu_linux_or_as_ive_recently_taken_to_calling_it_gnu_plus_linux_link) {
-			var s, output_name, temp_name, i, blob, url;
+			var s, temp_name, i, blob, url;
 
 			temp_name = "output_" + (("" + Math.random()).replace(/[^0-9]+/g, "")) + ext;
 
