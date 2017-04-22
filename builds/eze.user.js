@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.8.4
+// @version     1.0.8.5
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -3447,7 +3447,7 @@
 						img.className = "i";
 						if (fav_title) img.setAttribute("title", fav_title);
 
-						img.style.backgroundImage = "url('http://st.exhentai.net/img/fav.png')";
+						img.style.backgroundImage = "url('https://st.exhentai.net/img/fav.png')";
 						img.style.backgroundPosition = "0px -" + (2 + 19 * fav_id) + "px";
 						par.appendChild(img);
 					}
@@ -3706,7 +3706,7 @@
 
 				img = document.createElement("img");
 				img.setAttribute("alt", "");
-				img.setAttribute("src", api_site == "exhentai" ? "http://exhentai.org/img/mr.gif" : "http://ehgt.org/g/mr.gif");
+				img.setAttribute("src", api_site == "exhentai" ? "https://exhentai.org/img/mr.gif" : "https://ehgt.org/g/mr.gif");
 
 				par.appendChild(img);
 				par.appendChild($.text(" "));
@@ -3718,9 +3718,9 @@
 				var nodes = [],
 					n;
 
-				if ((n = html.querySelector("#nb>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
-				if ((n = html.querySelector("#frontpage>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
-				if ((n = html.querySelector(".ip>a[href='http://exhentai.org/']")) !== null) nodes.push(n);
+				if ((n = html.querySelector("#nb>a[href='https://exhentai.org/']")) !== null) nodes.push(n);
+				if ((n = html.querySelector("#frontpage>a[href='https://exhentai.org/']")) !== null) nodes.push(n);
+				if ((n = html.querySelector(".ip>a[href='https://exhentai.org/']")) !== null) nodes.push(n);
 
 				return nodes;
 			},
@@ -7435,7 +7435,7 @@
 			var link = document.querySelector("#favoritelink");
 
 			if (link) {
-				link.setAttribute("href", "http://exhentai.org/gallerypopups.php?gid=" + gallery.gid + "&t=" + gallery.token + "&act=addfav");
+				link.setAttribute("href", "https://exhentai.org/gallerypopups.php?gid=" + gallery.gid + "&t=" + gallery.token + "&act=addfav");
 
 				/*
 				// Create
@@ -7609,7 +7609,7 @@
 															$("p", [
 																$("a", { href: "/" + gal_info.category }, [
 																	$("img", "ic", {
-																		src: "http://st.exhentai.net/img/c/" + gal_info.category + ".png",
+																		src: "https://exhentai.net/img/c/" + gal_info.category + ".png",
 																		title: gal_info.category,
 																	}),
 																]),
@@ -7644,7 +7644,7 @@
 												// Extra stuff
 												n2 = $("p", [
 													$("a", "eze_gallery_link", "Modify favorite", {
-														href: "http://exhentai.org/gallerypopups.php?gid=" + gal_info.gallery.gid + "&t=" + gal_info.gallery.token + "&act=addfav",
+														href: "https://exhentai.org/gallerypopups.php?gid=" + gal_info.gallery.gid + "&t=" + gal_info.gallery.token + "&act=addfav",
 														target: "_blank",
 													}, $.ON, [ "click", on_favorite_edit_click ]),
 												]),
@@ -7863,7 +7863,7 @@
 							]),
 						]),
 						$("div", "eze_input_line", [
-							link2 = $("a", "eze_instruction", "Go to the homepage and log in", { href: "http://e-hentai.org/", target: "_blank", rel: "noreferrer nofollow" }),
+							link2 = $("a", "eze_instruction", "Go to the homepage and log in", { href: "https://e-hentai.org/", target: "_blank", rel: "noreferrer nofollow" }),
 						]),
 						$("div", "eze_input_line", [
 							link3 = $("a", "eze_instruction", "Refresh the page", { href: "" }),
