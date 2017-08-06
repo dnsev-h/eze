@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.8.5
+// @version     1.0.8.6
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -3518,7 +3518,7 @@
 				}
 				else if (
 					(n = html.querySelector("body>.d>p")) !== null &&
-					/this gallery has been removed, and is unavailable\./i.exec(n.textContent.trim()) !== null
+					/gallery\s+has\s+been\s+removed/i.exec(n.textContent.trim()) !== null
 				) {
 					return "gallery_deleted";
 				}
