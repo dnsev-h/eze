@@ -9,8 +9,8 @@
 // @run-at      document-start
 // @include     http://exhentai.org/*
 // @include     https://exhentai.org/*
-// @include     http://g.e-hentai.org/*
-// @include     https://g.e-hentai.org/*
+// @include     http://e-hentai.org/*
+// @include     https://e-hentai.org/*
 // @connect     exhentai.org
 // @connect     e-hentai.org
 // @connect     ehgt.org

@@ -9,8 +9,8 @@
 // @run-at         document-start
 // @include        http://exhentai.org/*
 // @include        https://exhentai.org/*
-// @include        http://g.e-hentai.org/*
-// @include        https://g.e-hentai.org/*
+// @include        http://e-hentai.org/*
+// @include        https://e-hentai.org/*
 // @connect        exhentai.org
 // @connect        e-hentai.org
 // @connect        ehgt.org
@@ -3814,7 +3814,7 @@
 				return obj;
 			},
 			get_image_limits: function (callback) {
-				return API.request_document("http://g.e-hentai.org/home.php",
+				return API.request_document("http://e-hentai.org/home.php",
 					// On load
 					function (response, status, status_text) {
 						var data = API.get_image_limits_from_html(response);
