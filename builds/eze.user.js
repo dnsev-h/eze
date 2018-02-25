@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.8.6
+// @version     1.0.8.8
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -1482,6 +1482,7 @@
 			extra = {
 				url: url,
 				response_headers: null,
+				final_url: url
 			};
 
 			// Values
@@ -1519,6 +1520,7 @@
 					xhr_data.onload = function (response) {
 						// Complete extra
 						complete_extra(extra, response.responseHeaders);
+						extra.final_url = response.finalUrl;
 
 						// Process response
 						var res_data = response.responseText;
@@ -3504,7 +3506,7 @@
 				if (html.querySelector("#searchbox") !== null) {
 					return "search";
 				}
-				else if (html.querySelector("input.stdbtn[value='Search Favorites']") !== null) {
+				else if (html.querySelector("input[name='favcat']") !== null) {
 					return "favorites";
 				}
 				else if (html.querySelector("#i1>h1") !== null) {
@@ -3513,7 +3515,7 @@
 				else if (html.querySelector(".gm h1#gn") !== null) {
 					return "gallery";
 				}
-				else if (html.querySelector(".stuffbox>form") !== null) {
+				else if (html.querySelector("#profile_outer") !== null) {
 					return "settings";
 				}
 				else if (
@@ -4815,7 +4817,7 @@
 			}
 			return false;
 		};
-		var on_request_image_load = function (req, using_data, using_method, response, status, status_text) {
+		var on_request_image_load = function (req, using_data, using_method, response, status, status_text, extra) {
 			req.stop(true);
 
 			if (status != 200) {
@@ -4852,6 +4854,8 @@
 			// Set info
 			var image_data = this.images[req.index],
 				data = image_data.info;
+
+			image_data.final_url = extra.final_url;
 
 			this.image_total_bytes[GalleryDownloader.IMAGE_FULL] -= (data.image_original !== null) ? data.image_original.size_approx : data.image.size_approx;
 			this.image_total_bytes[GalleryDownloader.IMAGE_FULL] += response.length;
@@ -5597,8 +5601,10 @@
 
 		})();
 		var filename_get_ext = function (name) {
-			var m = /(\.[^\/\.]*)$/.exec(name);
-			if (m) return m[1];
+			if (typeof(name) === "string") {
+				var m = /(\.[^#\?\\\/\.]*)(?:[#\?]|$)/.exec(name);
+				if (m) return m[1];
+			}
 			return "";
 		};
 		var filename_remove_ext = function (name) {
@@ -5927,11 +5933,11 @@
 			// Settings
 			var image_data = this.loader.images[index],
 				digit_count = Math.max(3, ("" + this.loader.images.length).length),
-				ext = filename_get_ext(image_data.image_url).toLowerCase(),
+				ext = filename_get_ext(image_data.final_url).toLowerCase(),
 				n, number;
 
-			if (ext.length === 0) ext = filename_get_ext(image_data.info.image.filename).toLowerCase();
-			ext = valid_extensions[ext in valid_extensions ? ext : ""];
+			if (ext.length === 0) { ext = filename_get_ext(image_data.info.image.filename).toLowerCase(); }
+			if (Object.prototype.hasOwnProperty.call(valid_extensions, ext)) { ext = valid_extensions[ext]; }
 
 			n = (this.numbering_mode == constants.NUMBERING_RENUMBER ? index : image_data.image_id);
 			number = "" + (n + 1);
@@ -6061,7 +6067,7 @@
 			var images = this.loader.images,
 				gal_info = this.loader.gal_info,
 				date = new Date(gal_info.date_uploaded),
-				tab_mode, json_info, img, obj, i;
+				tab_mode, json_info, img_meta, img, ext, fn, obj, i;
 
 			if (this.zip_info_json_mode == constants.JSON_READABLE_2SPACE) {
 				tab_mode = 2;
@@ -6119,14 +6125,19 @@
 
 			// Set images
 			for (i = 0; i < images.length; ++i) {
-				img = images[i].info;
+				img_meta = images[i];
+				img = img_meta.info;
+
+				fn = img.image.filename;
+				ext = filename_get_ext(img_meta.final_url);
+				if (ext.length > 0) { fn = filename_remove_ext(fn) + ext; }
 
 				obj = {
 					image_key: img.navigation.key_current,
 					direct_id: img.navigation.direct_id,
 					width: images[i].used.data.width,
 					height: images[i].used.data.height,
-					original_filename: img.image.filename,
+					original_filename: fn,
 				};
 
 				json_info.image_info.push(obj);
