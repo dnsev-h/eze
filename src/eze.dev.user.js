@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze (dev)
-// @version        1.0.8.8
+// @version        1.0.8.9
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -7421,6 +7421,9 @@
 		}
 		if (param_count > 0) {
 			// Add default search categories (doesn't overwrite if they already exist)
+			// Warning: This no longer works as of about 2018-02-09 because cookies aren't used for all settings anymore
+			// https://forums.e-hentai.org/index.php?showtopic=213374
+			/*
 			cats = settings.uconfig.categories;
 			for (k in Settings.uconfig_categories) {
 				if ((cats & Settings.uconfig_categories[k][0]) === 0) continue;
@@ -7428,6 +7431,7 @@
 				for (i = 0; i < vars.length && vars[i][0] != k2; ++i);
 				if (i == vars.length) vars.push([ k2 , "1" ]);
 			}
+			*/
 
 			// Add search apply
 			vars.push([ "f_apply", "Apply Filter" ]);
@@ -8254,6 +8258,22 @@
 							$("input", { type: "checkbox" }, $.ON, [ "change", on_search_setting2_change, false, [ $.node, "f_sr", "on", "f_srdd", n_min_rating ] ], $.CHECKED, "f_sr" in params),
 							$("span", null, "Minimum rating"),
 							n_min_rating.node,
+						]),
+					]),
+					$("div", "eze_settings_entry", { style: "padding-right:0;" }, [
+						$("div", "eze_settings_entry", "Categories", { style: "font-weight:bold;" }),
+						$("div", { style: "margin-left:1em;" }, [
+							$("div"),
+							create_search_setting("Doujinshi", "f_doujinshi", "1"),
+							create_search_setting("Manga", "f_manga", "1"),
+							create_search_setting("Artist CG", "f_artistcg", "1"),
+							create_search_setting("Game CG", "f_gamecg", "1"),
+							create_search_setting("Western", "f_western", "1"),
+							create_search_setting("Non-H", "f_non-h", "1"),
+							create_search_setting("Image Set", "f_imageset", "1"),
+							create_search_setting("Cosplay", "f_cosplay", "1"),
+							create_search_setting("Asian Porn", "f_asianporn", "1"),
+							create_search_setting("Misc", "f_misc", "1"),
 						]),
 					]),
 				]),
