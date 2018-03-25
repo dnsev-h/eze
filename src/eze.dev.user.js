@@ -162,7 +162,7 @@
 		}
 
 		return GM;
-	})(_GM);
+	}).call(this, _GM);
 
 
 	// Hash updating
