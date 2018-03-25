@@ -1,11 +1,18 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.8.9
+// @version     1.0.9
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
 // @description Additional features for E*Hentai
 // @grant       GM_xmlhttpRequest
+// @grant       GM_getValue
+// @grant       GM_setValue
+// @grant       GM_deleteValue
+// @grant       GM.xmlHttpRequest
+// @grant       GM.getValue
+// @grant       GM.setValue
+// @grant       GM.deleteValue
 // @run-at      document-start
 // @include     http://exhentai.org/*
 // @include     https://exhentai.org/*
