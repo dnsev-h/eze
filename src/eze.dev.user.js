@@ -6,6 +6,13 @@
 // @homepage       https://dnsev-h.github.io/eze/
 // @description    Additional features for E*Hentai
 // @grant          GM_xmlhttpRequest
+// @grant          GM_getValue
+// @grant          GM_setValue
+// @grant          GM_deleteValue
+// @grant          GM.xmlHttpRequest
+// @grant          GM.getValue
+// @grant          GM.setValue
+// @grant          GM.deleteValue
 // @run-at         document-start
 // @include        http://exhentai.org/*
 // @include        https://exhentai.org/*
@@ -91,6 +98,46 @@
 
 	})();
 /*</debug>*/
+
+
+	// Greasemonkey 4 compatibility
+	var to_promise = function (fn, self) {
+		return function () {
+			var args = arguments;
+			return new Promise(function (resolve, reject) {
+				try {
+					resolve(fn.apply(self, args));
+				}
+				catch (e) {
+					reject(e);
+				}
+			});
+		};
+	};
+
+	var GM = (function () {
+		var GM = this.GM;
+		if (GM !== null && typeof(GM) === "object") {
+			return GM;
+		}
+
+		var mapping = [
+			[ "getValue", "GM_getValue" ],
+			[ "setValue", "GM_setValue" ],
+			[ "deleteValue", "GM_deleteValue" ],
+			[ "xmlHttpRequest", "GM_xmlhttpRequest" ]
+		];
+
+		GM = {};
+		var m, i, ii;
+		for (i = 0, ii = mapping.length; i < ii; ++i) {
+			m = mapping[i];
+			GM[m[0]] = to_promise(this[m[1]], this);
+		}
+
+		return GM;
+	}).call(this);
+
 
 	// Hash updating
 	var Hash = (function () {
@@ -1073,324 +1120,121 @@
 	// Saving settings
 	var Save = (function () {
 
-		// Storage type
-		var using_gmstorage = false,
-			chrome_storage = null,
-			mode = "userscript",
-			modes = [ "userscript" , "local" , "session" , "temp" ],
-			temp_storage = {},
-			set_mode_functions, object_byte_size, create_generic_save, save;
+		var localStorage = window.localStorage;
 
-
-
-		// Session/site saving
-		object_byte_size = function (obj) {
-			try {
-				// Encode as a JSON object
-				obj = JSON.stringify(obj);
-			}
-			catch (e) {
-				// Invalid
-				return 0;
-			}
-
-			try {
-				// Encode in utf-8
-				return unescape(encodeURIComponent(obj)).length;
-			}
-			catch (e) {}
-
-			return obj.length;
-		};
-
-		// Generic save
-		create_generic_save = function (obj, object_byte_size) {
-			// Create
-			return {
-				get: function (key, callback) {
-					// Get value
-					var val = obj.getItem(key, undefined);
+		var SaveLocal = {
+			get: function (key, callback) {
+				var okay = false, v;
+				if (localStorage) {
 					try {
-						val = JSON.parse(val);
-					}
-					catch (e) {}
-					callback.call(null, val, true);
-				},
-				set: function (key, value, callback) {
-					// Set value
-					var okay = true;
-					try {
-						obj.setItem(key, JSON.stringify(value));
-					}
-					catch (e) {
-						okay = false;
-					}
-					if (callback) callback.call(null, okay);
-				},
-				del: function (key, callback) {
-					// Remove
-					obj.removeItem(key);
-					if (callback) callback.call(null, true);
-				},
-				keys: function (callback) {
-					// List keys
-					var keys = [],
-						i;
-
-					for (i = 0; i < obj.length; ++i) {
-						keys.push(obj.key(i));
-					}
-
-					callback.call(null, keys, true);
-				},
-				size: function (callback) {
-					var size = 0,
-						key, i;
-
-					// Count bytes (this may be approximate)
-					for (i = 0; i < obj.length; ++i) {
-						key = obj.key(i);
-						size += object_byte_size(key) + ((obj.getItem(key, null) || "").length || 0);
-					}
-
-					// Return
-					callback.call(null, size, true);
-				},
-				clear: function (callback) {
-					// Remove items
-					obj.clear();
-
-					if (callback) callback.call(null, true);
-				},
-			};
-		};
-
-		// Copy functions
-		set_mode_functions = function (new_mode) {
-			// Copy
-			var fns = save[new_mode];
-
-			save.get = fns.get;
-			save.set = fns.set;
-			save.del = fns.del;
-			save.keys = fns.keys;
-			save.size = fns.size;
-			save.clear = fns.clear;
-
-			// Update
-			mode = new_mode;
-		};
-
-
-
-		// Local storage save
-		save = {
-			get: null,
-			set: null,
-			del: null,
-			keys: null,
-			size: null,
-			clear: null,
-
-			local: create_generic_save(window.localStorage, object_byte_size),
-			session: create_generic_save(window.sessionStorage, object_byte_size),
-			userscript: null,
-			temp: {
-				get: function (key, callback) {
-					// Get value
-					var val = temp_storage[key];
-					try {
-						val = JSON.parse(val);
-					}
-					catch (e) {}
-					callback.call(null, val, true);
-				},
-				set: function (key, value, callback) {
-					// Set value
-					temp_storage[key] = JSON.stringify(value);
-					if (callback) callback.call(null, true);
-				},
-				del: function (key, callback) {
-					// Remove
-					delete temp_storage[key];
-					if (callback) callback.call(null, true);
-				},
-				keys: function (callback) {
-					// List keys
-					var keys = [],
-						k;
-
-					for (k in temp_storage) {
-						keys.push(k);
-					}
-
-					callback.call(null, keys, true);
-				},
-				size: function (callback) {
-					// Get size
-					var size = object_byte_size(temp_storage);
-					callback.call(null, size, true);
-				},
-				clear: function (callback) {
-					// Clear
-					temp_storage = {};
-					if (callback) callback.call(null, true);
-				},
-			},
-
-			set_mode: function (new_mode) {
-				var i = modes.indexOf(new_mode);
-				if (i < 0) i = 0;
-
-				while (save[modes[i]] === null) ++i;
-
-				set_mode_functions(modes[i]);
-
-				return mode;
-			},
-			get_mode: function () {
-				return mode;
-			},
-		};
-		create_generic_save = null;
-
-
-
-		// Check for chrome storage
-		try {
-			chrome_storage = chrome.storage.local || null;
-		}
-		catch (e) {}
-
-		// Check for GM storage
-		try {
-			if (GM_setValue && GM_getValue && GM_deleteValue && GM_listValues) {
-				using_gmstorage = true;
-			}
-		}
-		catch (e) {}
-
-
-
-		// Userscript storage method
-		if (chrome_storage !== null) {
-			// Chrome storage
-			save.userscript = {
-				get: function (key, callback) {
-					chrome_storage.get(key, function (value) {
-						// Final callback
-						callback.call(null, value[key], true);
-					});
-				},
-				set: function (key, value, callback) {
-					var obj = {};
-					obj[key] = value;
-
-					chrome_storage.set(obj, callback ? function () {
-						// Final callback
-						callback.call(null, true);
-					} : undefined);
-				},
-				del: function (key, callback) {
-					chrome_storage.remove(key, callback ? function () {
-						// Final callback
-						callback.call(null, true);
-					} : undefined);
-				},
-				keys: function (callback) {
-					chrome_storage.get(null, function (obj) {
-						// Get keys
-						var keys = [],
-							key;
-
-						for (key in obj) {
-							keys.push(key);
+						v = localStorage.getItem(key);
+						if (v === null) {
+							v = JSON.parse(v);
+							okay = true;
 						}
-
-						// Final callback
-						callback.call(null, keys, true);
-					});
-				},
-				size: function (callback) {
-					chrome_storage.getBytesInUse(null, function (bytes_used) {
-						// Final callback
-						callback.call(null, bytes_used, true);
-					});
-				},
-				clear: function (callback) {
-					chrome_storage.clear(callback ? function () {
-						// Final callback
-						callback.call(null, true);
-					} : undefined);
-				},
-			};
-		}
-		else if (using_gmstorage) {
-			// GM storage
-			save.userscript = {
-				get: function (key, callback) {
-					// Get value
-					var val = GM_getValue(key, undefined); // jshint ignore:line
-					try {
-						val = JSON.parse(val);
-					}
-					catch (e) {}
-					callback.call(null, val, true);
-				},
-				set: function (key, value, callback) {
-					// Set value
-					var okay = true;
-					try {
-						GM_setValue(key, JSON.stringify(value)); // jshint ignore:line
+						else {
+							v = undefined;
+						}
 					}
 					catch (e) {
-						okay = false;
+						v = undefined;
 					}
-					if (callback) callback.call(null, okay);
-				},
-				del: function (key, callback) {
-					// Remove
-					GM_deleteValue(key); // jshint ignore:line
-					if (callback) callback.call(null, true);
-				},
-				keys: function (callback) {
-					// List keys
-					var keys = GM_listValues(); // jshint ignore:line
-					callback.call(null, keys, true);
-				},
-				size: function (callback) {
-					var keys = GM_listValues(), // jshint ignore:line
-						size = 0,
-						i;
-
-					// Create representation
-					for (i = 0; i < keys.length; ++i) {
-						size += object_byte_size(keys[i]) + ((GM_getValue(keys[i], null) || "").length || 0); // jshint ignore:line
+				}
+				if (typeof(callback) === "function") {
+					callback.call(null, v, okay);
+				}
+			},
+			set: function (key, value, callback) {
+				var okay = false;
+				if (localStorage) {
+					try {
+						localStorage.setItem(key, JSON.stringify(value));
+						okay = true;
 					}
-
-					// Return
-					callback.call(null, size, true);
-				},
-				clear: function (callback) {
-					var keys = GM_listValues(), // jshint ignore:line
-						i;
-
-					// Create representation
-					for (i = 0; i < keys.length; ++i) {
-						GM_deleteValue(keys[i]); // jshint ignore:line
+					catch (e) {}
+				}
+				if (typeof(callback) === "function") {
+					callback.call(null, okay);
+				}
+			},
+			del: function (key, callback) {
+				var okay = false;
+				if (localStorage) {
+					try {
+						localStorage.removeItem(key);
+						okay = true;
 					}
+					catch (e) {}
+				}
+				if (typeof(callback) === "function") {
+					callback.call(null, okay);
+				}
+			},
+		};
 
-					// Return
-					callback.call(null, true);
-				},
-			};
-		}
+		var Save = {
+			get: function (key, callback) {
+				try {
+					GM.getValue(key)
+					.then(function (value) {
+						if (value === undefined) {
+							SaveLocal.get(key, callback);
+						}
+						else if (typeof(callback) === "function") {
+							callback.call(null, value, true);
+						}
+					})
+					.catch(function () {
+						SaveLocal.get(key, callback);
+					});
+				}
+				catch (e) {
+					SaveLocal.get(key, callback);
+				}
+			},
+			set: function (key, value, callback) {
+				try {
+					GM.setValue(key, value)
+					.then(function () {
+						if (typeof(callback) === "function") {
+							callback.call(null, true);
+						}
+					})
+					.catch(function () {
+						if (typeof(callback) === "function") {
+							callback.call(null, false);
+						}
+					});
+				}
+				catch (e) {
+					if (typeof(callback) === "function") {
+						callback.call(null, false);
+					}
+				}
+			},
+			del: function (key, callback) {
+				try {
+					GM.deleteValue(key, value)
+					.then(function () {
+						if (typeof(callback) === "function") {
+							callback.call(null, value, true);
+						}
+					})
+					.catch(function () {
+						if (typeof(callback) === "function") {
+							callback.call(null, false);
+						}
+					});
+				}
+				catch (e) {
+					if (typeof(callback) === "function") {
+						callback.call(null, false);
+					}
+				}
+			}
+		};
 
-
-
-		// Expose functions
-		save.set_mode(mode);
-		return save;
+		return Save;
 
 	})();
 
@@ -8393,6 +8237,6 @@
 		h_nav.init();
 	});
 
-})(window);
+}).call(this, window);
 
 
