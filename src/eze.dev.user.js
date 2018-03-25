@@ -114,6 +114,33 @@
 			});
 		};
 	};
+	var to_promise_immediate = function (fn, self) {
+		return function () {
+			var args = arguments;
+			var exc = null;
+			var result, p;
+
+			try {
+				result = fn.apply(self, args);
+			}
+			catch (e) {
+				exc = e;
+			}
+
+			p = new Promise(function (resolve, reject) {
+				p._result = result;
+				if (exc === undefined) {
+					resolve(result);
+				}
+				else {
+					reject(exc);
+				}
+			});
+			p._result = result;
+
+			return p;
+		};
+	};
 
 	var GM = (function () {
 		var GM = this.GM;
@@ -122,17 +149,17 @@
 		}
 
 		var mapping = [
-			[ "getValue", "GM_getValue" ],
-			[ "setValue", "GM_setValue" ],
-			[ "deleteValue", "GM_deleteValue" ],
-			[ "xmlHttpRequest", "GM_xmlhttpRequest" ]
+			[ "getValue", "GM_getValue", false ],
+			[ "setValue", "GM_setValue", false ],
+			[ "deleteValue", "GM_deleteValue", false ],
+			[ "xmlHttpRequest", "GM_xmlhttpRequest", true ]
 		];
 
 		GM = {};
 		var m, i, ii;
 		for (i = 0, ii = mapping.length; i < ii; ++i) {
 			m = mapping[i];
-			GM[m[0]] = to_promise(this[m[1]], this);
+			GM[m[0]] = (m[2] ? to_promise_immediate : to_promise)(this[m[1]], this);
 		}
 
 		return GM;
@@ -1309,7 +1336,7 @@
 		var can_use_gm = false;
 
 		try {
-			if (GM_xmlhttpRequest) {
+			if (GM.xmlHttpRequest) {
 				can_use_gm = true;
 			}
 		}
@@ -1474,8 +1501,17 @@
 
 				// Send
 				if (data !== null) xhr_data.data = data;
-				/*<debug>*/debug_log("GM_xmlhttpRequest", xhr_data);/*</debug>*/
-				xhr = GM_xmlhttpRequest(xhr_data); // jshint ignore:line
+				/*<debug>*/debug_log("GM.xmlHttpRequest", xhr_data);/*</debug>*/
+				var gmxhr = GM.xmlHttpRequest(xhr_data); // jshint ignore:line
+				xhr = {
+					abort: function () {
+						// This is sort of hacky to support both GM4 and other userscript engines which had the .abort function available
+						/*<debug>*/debug_log("Aborting GM.xmlHttpRequest", gmxhr);/*</debug>*/
+						if (gmxhr && gmxhr._result && gmxhr._result.abort) {
+							gmxhr._result.abort();
+						}
+					}
+				};
 			}
 			else {
 				// Create XHR
