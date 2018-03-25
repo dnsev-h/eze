@@ -32,7 +32,7 @@
 
 
 // Main scope
-(function (window) {
+(function (window, _GM) {
 	"use strict";
 
 	// Tampermonkey bug fix
@@ -142,8 +142,7 @@
 		};
 	};
 
-	var GM = (function () {
-		var GM = this.GM;
+	var GM = (function (GM) {
 		if (GM !== null && typeof(GM) === "object") {
 			return GM;
 		}
@@ -163,7 +162,7 @@
 		}
 
 		return GM;
-	}).call(this);
+	})(_GM);
 
 
 	// Hash updating
@@ -8273,6 +8272,6 @@
 		h_nav.init();
 	});
 
-}).call(this, window);
+}).call(this, window, (function () { try { return GM; } catch (e) { return undefined; } })());
 
 
