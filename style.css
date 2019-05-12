@@ -112,3 +112,8 @@ a.gh_page_link:not(:hover) {
 	color: #808184;
 	margin: 0 0 0 0.5em;
 }
+
+.strike {
+	text-decoration: line-through;
+	padding-bottom: 0.5em;
+}
