@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze (dev)
-// @version        1.0.9.1
+// @version        1.0.9.2
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -6965,7 +6965,7 @@
 			".id1:not(.e-Highlighted):not(.e-Filtered)>.id2{overflow:visible;position:relative;}",
 			".id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2{z-index:1;}",
 			".id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2>a{text-shadow:0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}};background:{{color:bg,0.75}};display:inline-block;padding-bottom:0.5em;}",
-			(is_ex ? "#nb{max-width:780px;}" : ""),
+			":root.eze_is_ex #nb{max-width:780px;}",
 
 			".eze_gallery_page_container{}",
 			".eze_gallery_page{background:{{color:bg_light}};border:1px solid {{color:border}};text-align:left;width:99%;min-width:950px;max-width:1200px;margin:0 auto;clear:both;padding:5px;border-radius:{{border_radius}};position:relative;border-top-left-radius:0;}",
@@ -7132,6 +7132,7 @@
 		);
 
 		// Insert
+		document.documentElement.classList.toggle("eze_is_ex", is_ex);
 		API.inject_style(css);
 	};
 
