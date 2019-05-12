@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name           eze (dev)
-// @version        1.0.9
+// @version        1.0.9.1
 // @author         dnsev-h
 // @namespace      dnsev-h
 // @homepage       https://dnsev-h.github.io/eze/
@@ -3641,17 +3641,13 @@
 
 			add_header_link: function (node) {
 				var par = document.getElementById("nb"),
-					img;
+					div;
 
 				if (par === null) return false;
 
-				img = document.createElement("img");
-				img.setAttribute("alt", "");
-				img.setAttribute("src", api_site == "exhentai" ? "https://exhentai.org/img/mr.gif" : "https://ehgt.org/g/mr.gif");
-
-				par.appendChild(img);
-				par.appendChild($.text(" "));
-				par.appendChild(node);
+				div = document.createElement("div");
+				div.appendChild(node);
+				par.appendChild(div);
 
 				return true;
 			},
@@ -6969,6 +6965,7 @@
 			".id1:not(.e-Highlighted):not(.e-Filtered)>.id2{overflow:visible;position:relative;}",
 			".id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2{z-index:1;}",
 			".id1:not(.e-Highlighted):not(.e-Filtered):hover>.id2>a{text-shadow:0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}},0px 0px 1px {{color:gallery_item_hl}};background:{{color:bg,0.75}};display:inline-block;padding-bottom:0.5em;}",
+			(is_ex ? "#nb{max-width:780px;}" : ""),
 
 			".eze_gallery_page_container{}",
 			".eze_gallery_page{background:{{color:bg_light}};border:1px solid {{color:border}};text-align:left;width:99%;min-width:950px;max-width:1200px;margin:0 auto;clear:both;padding:5px;border-radius:{{border_radius}};position:relative;border-top-left-radius:0;}",
