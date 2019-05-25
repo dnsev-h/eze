@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        eze
-// @version     1.0.9.2
+// @version     1.0.9.3
 // @author      dnsev-h
 // @namespace   dnsev-h
 // @homepage    https://dnsev-h.github.io/eze/
@@ -116,6 +116,7 @@
 			this.path_array = [];
 			this.vars = {};
 			this.vars_array = [];
+			this.is_inited = false;
 
 			// Change listeners
 			this.onchange_listener = function () {
@@ -193,13 +194,19 @@
 
 		Hash.prototype = {
 			init: function () {
+				if (this.is_inited) { return; }
+
 				// Events
 				window.addEventListener("popstate", this.onchange_listener, false);
 
 				// Init trigger
+				this.is_inited = true;
 				trigger_change.call(this, "init");
 			},
 
+			call: function (callback) {
+				callback.call(null, this, "call");
+			},
 			on_change: function (callback) {
 				this.change_listeners.push(callback);
 			},
@@ -6642,6 +6649,7 @@
 				custom_search_form: true,
 				custom_search_params: {},
 				multiviewer_by_default: false,
+				show_deprecation_notice: true,
 			};
 			this.validators = {
 				custom_search_front_page: is_boolean,
@@ -6649,6 +6657,7 @@
 				custom_search_form: is_boolean,
 				custom_search_params: is_object_not_null,
 				multiviewer_by_default: is_boolean,
+				show_deprecation_notice: is_boolean,
 			};
 
 			this.uconfig = {
@@ -7090,7 +7099,7 @@
 	};
 
 	var setup_before_ready = function () {
-		API.block_redirections();
+		//API.block_redirections();
 
 		if (settings.get("custom_search_front_page")) {
 			// Check for auto-search redirect
@@ -7811,6 +7820,9 @@
 		var setup_settings = function () {
 			// Setup navigation
 			h_nav.on_change(on_hash_change);
+			if (h_nav.is_inited) {
+				h_nav.call(on_hash_change);
+			}
 		};
 
 
@@ -7859,6 +7871,12 @@
 			box = $("div", "eze_settings_box", [
 				$("h1", "eze_settings_header", "Search link settings"),
 				$("div", "eze_settings_entry_container", [
+					$("div", "eze_settings_entry", [
+						$("label", "eze_settings_label", [
+							$("input", { type: "checkbox" }, $.ON, [ "change", on_checkbox_change, false, [ $.node, "show_deprecation_notice" ] ], $.CHECKED, settings.get("show_deprecation_notice")),
+							$("strong", null, "Show deprecation notice"),
+						]),
+					]),
 					$("div", "eze_settings_entry", [
 						$("label", "eze_settings_label", [
 							$("input", { type: "checkbox" }, $.ON, [ "change", on_checkbox_change, false, [ $.node, "custom_search_front_page" ] ], $.CHECKED, settings.get("custom_search_front_page")),
@@ -7984,6 +8002,82 @@
 
 	})();
 
+	var deprecation_notice = (function () {
+
+		var display = function () {
+			if (settings.get("show_deprecation_notice") === false) { return; }
+
+			var n = document.querySelector("#toppane");
+			if (n === null) { return; }
+
+			var notice = document.createElement("div");
+			var notice_content = document.createElement("div");
+			notice_content.className = "idi";
+			notice_content.style.textAlign = "left";
+
+			var header = document.createElement("h2");
+			header.style.textAlign = "center";
+			header.style.margin = "0";
+			header.textContent = "eze Deprecation Notice";
+			notice_content.appendChild(header);
+
+			var p = document.createElement("p");
+			p.textContent = "The eze userscript is no longer undergoing active development.\nSeveral features have already stopped working, and more features\nare likely to break in the future.";
+			notice_content.appendChild(p);
+
+			p = document.createElement("p");
+			p.textContent = "Several features have already been converted to standalone userscripts\nthat will be easier to maintain in the future:";
+			notice_content.appendChild(p);
+
+			var li;
+			var ul = document.createElement("ul");
+			ul.style.padding = "0 0 0 1.5em";
+			ul.style.margin = "3px 1px";
+			li = document.createElement("li"); li.textContent = "Random gallery"; ul.appendChild(li);
+			li = document.createElement("li"); li.textContent = "Gallery thumbnail loader"; ul.appendChild(li);
+			li = document.createElement("li"); li.textContent = "Removed gallery info recovery"; ul.appendChild(li);
+			li = document.createElement("li"); li.textContent = "Full title readability on search results"; ul.appendChild(li);
+			notice_content.appendChild(ul);
+
+			p = document.createElement("p");
+			p.textContent = "These features can be found in the collection of userscripts at ";
+			var a = document.createElement("a");
+			a.href = "https://dnsev-h.github.io/x/";
+			a.target = "_blank";
+			a.rel = "noreferrer";
+			a.textContent = a.href;
+			p.appendChild(a);
+			p.appendChild(document.createTextNode("."));
+			notice_content.appendChild(p);
+
+			p = document.createElement("p");
+			a = document.createElement("a");
+			a.href = "#";
+			a.target = "_blank";
+			a.rel = "noreferrer";
+			a.textContent = "Click here to hide this notice.";
+			a.addEventListener("click", function (e) {
+				settings.set("show_deprecation_notice", false);
+				notice.style.display = "none";
+				e.preventDefault();
+				e.stopPropagation();
+				return false;
+			}, false);
+			p.appendChild(a);
+			notice_content.appendChild(p);
+
+			notice.appendChild(notice_content);
+
+			n.parentNode.insertBefore(notice, n);
+		};
+
+		return function () {
+			// Delay for settings to be loaded
+			setTimeout(function () { display(); }, 100);
+		};
+
+	})();
+
 
 
 	// Init
@@ -8012,11 +8106,13 @@
 				setup_gallery();
 			}
 			else if (page_type == "gallery_deleted") {
-				setup_gallery_deleted();
+				// setup_gallery_deleted();
 			}
 			else if (page_type == "settings") {
-				setup_settings();
+				setTimeout(function () { setup_settings(); }, 100);
 			}
+
+			deprecation_notice();
 		}
 
 		// Init hash navigation
